@@ -2,7 +2,7 @@ const prisma = require('../config/db');
 const { imageQueue } = require('../queues/imageQueue');
 const fs = require('fs');
 const path = require('path');
-const redisConnection = require('../config/redis');
+const { healthConnection } = require('../config/redis');
 
 exports.uploadImage = async (req, res) => {
     try {
@@ -147,38 +147,47 @@ exports.getResult = async (req, res) => {
 };
 
 exports.getHealth = async (req, res) => {
+    // Redis check — use explicit ping instead of checking .status
+    let redisStatus = 'offline';
     try {
-        // Try redis ping
-        let redisStatus = 'offline';
-        try {
-            if (redisConnection.status === 'ready') {
-                redisStatus = 'online';
-            }
-        } catch(e) {}
-        
-        let dbStatus = 'offline';
-        try {
-            await prisma.$queryRaw`SELECT 1`;
-            dbStatus = 'online';
-        } catch(e) {}
-        
-        const queueSize = await imageQueue.getWaitingCount();
-        const activeJobs = await imageQueue.getActiveCount();
-
-        res.json({
-            systems: {
-                worker: redisStatus, // assuming worker is online if redis is online
-                db: dbStatus,
-                redis: redisStatus
-            },
-            metrics: {
-                queueSize,
-                activeJobs
-            }
-        });
-    } catch (error) {
-        res.status(500).json({ status: 'error' });
+        const pong = await healthConnection.ping();
+        if (pong === 'PONG') redisStatus = 'online';
+    } catch(e) {
+        console.error('Health Redis ping failed:', e.message);
     }
+
+    // DB check
+    let dbStatus = 'offline';
+    try {
+        await prisma.$queryRaw`SELECT 1`;
+        dbStatus = 'online';
+    } catch(e) {
+        console.error('Health DB check failed:', e.message);
+    }
+
+    // Queue metrics — safe fallback if Redis is unstable
+    let queueSize = 0;
+    let activeJobs = 0;
+    let workerStatus = redisStatus; // worker depends on redis
+    try {
+        queueSize = await imageQueue.getWaitingCount();
+        activeJobs = await imageQueue.getActiveCount();
+    } catch(e) {
+        console.error('Health queue metrics failed:', e.message);
+        workerStatus = 'offline';
+    }
+
+    res.json({
+        systems: {
+            worker: workerStatus,
+            db: dbStatus,
+            redis: redisStatus
+        },
+        metrics: {
+            queueSize,
+            activeJobs
+        }
+    });
 };
 
 exports.getAnalytics = async (req, res) => {

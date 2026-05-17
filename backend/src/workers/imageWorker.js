@@ -1,5 +1,5 @@
 const { Worker } = require('bullmq');
-const connection = require('../config/redis');
+const { createRedisConnection } = require('../config/redis');
 const prisma = require('../config/db');
 const imageAnalysis = require('../services/imageAnalysis');
 const fs = require('fs');
@@ -112,7 +112,7 @@ const worker = new Worker('image-processing', async job => {
 
         throw error;
     }
-}, { connection, concurrency: 5 });
+}, { connection: createRedisConnection(), concurrency: 5 });
 
 worker.on('completed', job => {
     console.log(`[Worker] Job ${job.id} has completed!`);

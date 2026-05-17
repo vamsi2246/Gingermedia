@@ -3,35 +3,43 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-let connection;
+/**
+ * Returns a new isolated ioredis connection.
+ * BullMQ requires each component (Queue, Worker, QueueEvents) to have
+ * its own independent connection — sharing one instance causes ECONNRESET.
+ */
+function createRedisConnection() {
+    let conn;
 
-// Upstash provides a full REDIS_URL — support both formats
-if (process.env.REDIS_URL) {
-    // Full URL format: redis://default:password@host:port
-    connection = new Redis(process.env.REDIS_URL, {
-        maxRetriesPerRequest: null,
-        enableReadyCheck: false,
-        tls: process.env.REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+    if (process.env.REDIS_URL) {
+        conn = new Redis(process.env.REDIS_URL, {
+            maxRetriesPerRequest: null,
+            enableReadyCheck: false,
+            tls: process.env.REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+        });
+    } else {
+        // Local dev: separate host/port
+        conn = new Redis({
+            host: process.env.REDIS_HOST || '127.0.0.1',
+            port: parseInt(process.env.REDIS_PORT) || 6379,
+            password: process.env.REDIS_PASSWORD || undefined,
+            maxRetriesPerRequest: null,
+            enableReadyCheck: false,
+        });
+    }
+
+    conn.on('error', (err) => {
+        console.error('Redis connection error:', err.message);
     });
-} else {
-    // Separate host/port/password format (local dev)
-    const isUpstash = process.env.REDIS_HOST && process.env.REDIS_HOST.includes('upstash.io');
-    connection = new Redis({
-        host: process.env.REDIS_HOST || '127.0.0.1',
-        port: parseInt(process.env.REDIS_PORT) || 6379,
-        password: process.env.REDIS_PASSWORD || undefined,
-        tls: isUpstash ? { rejectUnauthorized: false } : undefined,
-        maxRetriesPerRequest: null,
-        enableReadyCheck: false,
+
+    conn.on('connect', () => {
+        console.log('✅ Redis connected successfully');
     });
+
+    return conn;
 }
 
-connection.on('error', (err) => {
-    console.error('Redis connection error:', err.message);
-});
+// Dedicated connection for health checks / direct pings
+const healthConnection = createRedisConnection();
 
-connection.on('connect', () => {
-    console.log('✅ Redis connected successfully');
-});
-
-module.exports = connection;
+module.exports = { createRedisConnection, healthConnection };
