@@ -21,6 +21,7 @@ model Upload {
   updatedAt      DateTime       @updatedAt
   
   analysisResult AnalysisResult?
+  failureReason  FailureReason?
 }
 
 model AnalysisResult {
@@ -33,6 +34,9 @@ model AnalysisResult {
   brightnessCategory String?
   ocrText            String?  @db.Text
   ocrConfidence      Float?
+  systemConfidence   Float?
+  blurDescription    String?  @db.Text
+  brightnessDescription String? @db.Text
   isDuplicate        Boolean  @default(false)
   patternValid       Boolean  @default(false)
   overallVerdict     String?
@@ -40,14 +44,12 @@ model AnalysisResult {
   detectedCategory   String?
   
   createdAt          DateTime @default(now())
-  
-  failureReason      FailureReason?
 }
 
 model FailureReason {
   id               String         @id @default(uuid())
-  analysisResultId String         @unique
-  analysisResult   AnalysisResult @relation(fields: [analysisResultId], references: [id], onDelete: Cascade)
+  uploadId         String         @unique
+  upload           Upload         @relation(fields: [uploadId], references: [id], onDelete: Cascade)
   
   message          String         @db.Text
   step             String?

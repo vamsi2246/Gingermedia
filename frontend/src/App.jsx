@@ -255,13 +255,7 @@ function App() {
         }
     };
 
-    const getInterpretedBlur = (score) => {
-        if (!score && score !== 0) return "Unknown";
-        if (score > 70) return "Image quality is severely degraded due to excessive blur.";
-        if (score > 45) return "Noticeable blur affecting overall clarity.";
-        if (score > 25) return "Image contains slight softness but remains visually usable.";
-        return "Image is sharp with well-defined edges.";
-    };
+    // Dynamic context-aware narrative generation handles blur and brightness descriptions on the backend now.
 
     return (
         <>
@@ -413,9 +407,9 @@ function App() {
                                     <div className="flex items-center gap-3 bg-black/50 border border-white/10 px-5 py-2 rounded-full shadow-inner">
                                         <span className="text-xs text-slate-400 uppercase tracking-widest font-bold">Verdict:</span>
                                         <span className={`text-sm font-bold font-mono tracking-wide ${
-                                            results.overallVerdict === 'GOOD_QUALITY' ? 'text-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]' :
-                                            results.overallVerdict === 'ACCEPTABLE' ? 'text-success drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 
-                                            results.overallVerdict === 'SUSPICIOUS' ? 'text-warning drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]' : 'text-danger drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]'
+                                            (results.overallVerdict === 'GOOD_VISUAL_QUALITY' || results.overallVerdict === 'HIGH_CONFIDENCE_READABLE') ? 'text-success drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
+                                            (results.overallVerdict === 'PARTIALLY_READABLE' || results.overallVerdict === 'VISUALLY_CLEAR_TEXT_LIMITED' || results.overallVerdict === 'LOW_CLARITY_BUT_USABLE' || results.overallVerdict === 'SUSPICIOUS') ? 'text-warning drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]' : 
+                                            'text-danger drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]'
                                         }`}>
                                             {results.overallVerdict}
                                         </span>
@@ -455,7 +449,7 @@ function App() {
                                             title="Blur Level" 
                                             icon={Activity} 
                                             status={results.blurScore <= 45 ? 'ok' : results.blurScore <= 70 ? 'warn' : 'err'} 
-                                            value={getInterpretedBlur(results.blurScore)} 
+                                            value={results.blurDescription || 'Image clarity has been analyzed.'} 
                                             subtext={`RAW SCORE: ${results.blurScore?.toFixed(2) || '0.00'}`}
                                             progress={results.blurScore / 10} 
                                         />
@@ -463,7 +457,7 @@ function App() {
                                             title="Brightness" 
                                             icon={Activity} 
                                             status={results.brightnessValue >= 40 && results.brightnessValue <= 180 ? 'ok' : 'warn'} 
-                                            value={results.brightnessCategory || 'Unknown'} 
+                                            value={results.brightnessDescription || 'Luminance levels have been verified.'} 
                                             subtext={`LUMINANCE: ${Math.round(results.brightnessValue || 0)}`} 
                                             progress={(results.brightnessValue || 0) / 2.5} 
                                         />
@@ -472,7 +466,7 @@ function App() {
                                             icon={Scan} 
                                             colSpan={true} 
                                             value={results.ocrConfidence < 0.3 ? 'No readable structured text could be extracted.' : (results.ocrText || 'No readable structured text could be extracted.')} 
-                                            subtext={`CONFIDENCE: ${((results.ocrConfidence || 0) * 100).toFixed(0)}%`} 
+                                            subtext={`CONFIDENCE: ${((results.ocrConfidence || 0) * 100).toFixed(0)}% — Confidence reflects OCR reliability and visual extraction certainty.`} 
                                             isCode={results.ocrConfidence >= 0.3 && results.ocrText} 
                                         />
                                         <MetricCard 
@@ -483,11 +477,11 @@ function App() {
                                             isCode={false} 
                                         />
                                         <MetricCard 
-                                            title="Image Category" 
+                                            title="CONTENT ANALYSIS" 
                                             icon={Cpu} 
                                             status="ok" 
                                             value={results.detectedCategory || 'General Object'} 
-                                            subtext="AI SEMANTIC CLASSIFICATION" 
+                                            subtext="AI-ASSISTED SCENE UNDERSTANDING" 
                                         />
                                     </div>
                                 </div>

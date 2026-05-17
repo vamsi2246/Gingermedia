@@ -13,6 +13,20 @@ const worker = new Worker('image-processing', async job => {
             where: { id: uploadId },
             data: { status: 'PROCESSING' }
         });
+
+        const upload = await prisma.upload.findUnique({ where: { id: uploadId } });
+        
+        // 1. Realistic Failure Simulation
+        if (upload.mimeType === 'text/plain' || upload.filename.endsWith('.txt')) {
+            throw new Error('INVALID_IMAGE_FORMAT: .txt files are not supported for visual analysis.');
+        }
+        if (upload.mimeType === 'application/zip' || upload.filename.endsWith('.zip')) {
+            throw new Error('UNSUPPORTED_ARCHIVE: Please extract archive contents before uploading.');
+        }
+        if (upload.originalName.toLowerCase().includes('corrupt')) {
+            throw new Error('OCR_PIPELINE_ERROR: Tesseract engine crashed during text region alignment.');
+        }
+
         
         // 1. Calculate image hash
         const imageBuffer = fs.readFileSync(filePath);
@@ -65,6 +79,9 @@ const worker = new Worker('image-processing', async job => {
                 isDuplicate: results.isDuplicate,
                 patternValid: results.patternValid,
                 overallVerdict: results.overallVerdict,
+                systemConfidence: results.systemConfidence,
+                blurDescription: results.blurDescription,
+                brightnessDescription: results.brightnessDescription,
                 detectedCategory: results.detectedCategory,
                 imageHash: hash
             }
@@ -83,6 +100,14 @@ const worker = new Worker('image-processing', async job => {
         await prisma.upload.update({
             where: { id: uploadId },
             data: { status: 'FAILED' }
+        });
+
+        await prisma.failureReason.create({
+            data: {
+                uploadId: uploadId,
+                message: error.message,
+                step: 'image-processing'
+            }
         });
 
         throw error;

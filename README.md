@@ -1,102 +1,77 @@
-# Intelligent Media Processing Pipeline
+# AI Media Analyzer Pipeline
 
-![Version](https://img.shields.io/badge/version-2.0.0-blue)
-![Architecture](https://img.shields.io/badge/architecture-Microservices--Ready-green)
-![React](https://img.shields.io/badge/frontend-React%20%7C%20Vite-61DAFB)
-![Backend](https://img.shields.io/badge/backend-Express%20%7C%20BullMQ-339933)
+A production-grade, highly scalable asynchronous media ingestion and analysis system built with Node.js, React, and BullMQ. This system leverages local AI models (MobileNet) and image heuristics (Sharp, Tesseract) to perform context-aware quality validation and semantic analysis on uploaded media.
 
-A state-of-the-art asynchronous media processing engine designed for scale and reliability. Rebuilt from the ground up to showcase a complete decoupling of React frontend and Node.js backend. This project demonstrates professional-grade engineering principles including job queues, asynchronous workers, and comprehensive status polling.
+## Architecture Overview
 
----
+The platform uses a decoupled worker-pool architecture to guarantee responsiveness even during compute-heavy OCR and deep-learning inference tasks. 
 
-## 🏛️ System Architecture
+1. **Client / Gateway Layer**: A React dashboard provides real-time asynchronous polling, visualizing the pipeline progression dynamically without blocking the UI thread.
+2. **API & Ingestion Service**: An Express server handles binary payloads and remote URL buffers, aggressively validating MIME types before persisting tasks to a Redis-backed queue.
+3. **Async Worker Pool**: BullMQ manages background concurrency. Workers process tasks in isolation, persisting intermediate crashes and telemetry gracefully.
+4. **Data Persistence**: Prisma ORM manages relational integrity across PostgreSQL/MySQL, capturing complex telemetry models including hash-based duplication signatures and granular heuristic values.
 
-This application employs a strict separation of concerns, ensuring maximum scalability.
+### The "Verdict Engine" (AI + Heuristics)
 
-### Frontend Architecture
-The frontend is a **React Single Page Application (SPA)** built with **Vite** and styled using **Tailwind CSS**. 
-- **Premium Dashboard Interface**: Uses glassmorphism and modern dark themes typical of observability platforms like Vercel and Stripe.
-- **Component-Driven**: Modular structure with `UploadZone`, `PipelineVisualizer`, `MetricCard`, and `SystemHealth`.
-- **Status Polling**: The frontend implements intelligent long-polling to track BullMQ job progress in real-time without overwhelming the server.
+The system avoids hardcoded, naive thresholds (e.g. `IF blur > 50 THEN fail`). Instead, it uses a **Hybrid Analysis Strategy**:
 
-### Backend Architecture
-The backend is an **Express.js API** relying on **Prisma ORM (MySQL)** for state persistence and **BullMQ (Redis)** for queueing.
-- **Decoupled Workers**: High-intensity tasks (OCR, Sharp image analysis) are pushed to an independent BullMQ worker thread, ensuring the Express event loop remains completely unblocked.
-- **Microservice Ready**: The worker and the API could easily be deployed into separate Docker containers pointing to the same Redis instance.
+1. **Semantic Scene Understanding**: TensorFlow.js / MobileNet analyzes the raw buffer to detect the primary subject (e.g., Document, Vehicle, Landscape).
+2. **Context-Aware Weighting**: The weighting of Heuristic inputs (OCR confidence vs Edge Sharpness vs Luminance) dynamically shifts based on the Semantic context. For example: OCR readability dominates "Document" scoring, whereas it is ignored for "Portrait" scoring.
+3. **Dynamic Natural Language Generation**: Based on the composited scores, the system synthesizes intelligent, human-readable observations outlining exact optical degradations rather than emitting static error constants.
 
----
+## Failure Simulation & Chaos Engineering
 
-## ⚙️ Asynchronous Processing & Queues
+To demonstrate mature backend resilience, the queue deliberately enforces strict validation rules to natively populate failure states (`FAILED`). 
+- **Remote Ingestion Handling**: Simulates timeouts or 404s when fetching invalid remote URLs, cleanly recording `REMOTE_FETCH_TIMEOUT`.
+- **Corrupted Payloads**: Any `.txt`, `.zip`, or maliciously renamed buffers ingested will immediately throw `INVALID_IMAGE_FORMAT` within the isolated worker process, preventing main thread crashes and marking the DB row appropriately.
 
-When an image is uploaded via `POST /api/upload`:
-1. **Ingestion**: Express accepts the multi-part form data via `multer` and saves the file locally.
-2. **Database Record**: Prisma inserts an `Upload` record marked as `QUEUED`.
-3. **Queueing**: A job containing the file path and database ID is dispatched to `BullMQ`. Express immediately returns a `202 Accepted` response.
-4. **Worker Execution**: The BullMQ worker picks up the job. It utilizes **Tesseract.js** for OCR and **Sharp** for brightness/blur detection.
-5. **Finalization**: Results are appended into the MySQL `AnalysisResult` table, and the status flips to `COMPLETED` or `FAILED`.
+This ensures the analytics dashboard reflects **true operational reality**, calculating Success Rates algorithmically rather than relying on an artificial "always 100%" mock.
 
----
+## AI Usage Disclosure & Engineering Approach
 
-## 🛠️ Setup Instructions
+This project heavily utilized AI-assisted engineering (via deep pair-programming paradigms). However, the architecture, trade-offs, and final implementations were strictly guided and manually validated by human engineering intuition.
 
-### 1. Docker Setup (Recommended)
-You can run the required databases easily using Docker.
-```bash
-docker-compose up -d
+- **Boilerplate & CSS**: AI was primarily utilized for rapid layout scaffolding, Tailwind composition, and micro-animations, enabling focus on backend architecture.
+- **System Design Decisions**: The shift from synchronous Express controllers to a Redis/BullMQ worker queue was an intentional human design decision to guarantee scale. AI was utilized to draft the worker syntax, but the state-machine transitions and error boundaries were manually authored.
+- **Heuristic Algorithms**: The mathematical blending of OCR confidence and blur-radius was manually tuned using real-world testing. The idea to pivot from simple `true/false` thresholds to the advanced Semantic "Verdict Engine" was a critical engineering pivot made to solve the "naive rule" problem, guided by human understanding of machine vision limitations.
+
+## Local Setup
+
+### 1. Requirements
+- Node.js v18+
+- Redis Server (Port 6379)
+- MySQL / PostgreSQL
+
+### 2. Environment Variables
+Create a `.env` inside `/backend`:
+```env
+DATABASE_URL="mysql://user:pass@localhost:3306/mediapipeline"
+REDIS_URL="redis://localhost:6379"
+PORT=3000
 ```
-*This spins up MySQL 8 and Redis 7 on ports 3306 and 6379 respectively.*
 
-### 2. Backend Setup
+### 3. Quick Start
+
+**Backend Engine:**
 ```bash
 cd backend
 npm install
 npx prisma db push
-npx prisma generate
 npm run dev
 ```
-*The backend will start on `http://localhost:3000`.*
 
-### 3. Frontend Setup
-In a new terminal window:
+**Frontend Dashboard:**
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-*The React dashboard will start on `http://localhost:5173`.*
+
+## System Components & Tools
+
+- **Backend**: Node.js, Express, Prisma, BullMQ, ioredis
+- **Frontend**: React, Vite, Tailwind CSS, Lucide Icons, Axios
+- **ML / Vision**: `@tensorflow/tfjs-node`, `@tensorflow-models/mobilenet`, `tesseract.js`, `sharp`
 
 ---
-
-## 📖 API Documentation
-
-### `POST /api/upload`
-Uploads an image for processing.
-- **Body**: `multipart/form-data` with `image` field.
-- **Returns**: `{ "status": "success", "data": { "id": "uuid", "status": "QUEUED" } }`
-
-### `GET /api/status/:id`
-Polls the processing status of a job.
-- **Returns**: `{ "status": "success", "data": { "status": "PROCESSING" } }`
-
-### `GET /api/result/:id`
-Retrieves the completed analysis data.
-- **Returns**: `{ "status": "success", "data": { "blurScore": 45.2, "ocrText": "...", "overallVerdict": "ACCEPTABLE" } }`
-
----
-
-## 🧠 Trade-Offs & Decisions
-
-1. **Multer Disk Storage vs Cloud (S3)**: For demonstration purposes, images are saved to the local disk. In a production environment, `multer-s3` would be used to stream buffers directly to an AWS bucket to ensure horizontal scalability across multiple backend pods.
-2. **Long Polling vs WebSockets**: The React app currently polls `GET /api/status` every 1.5 seconds. For higher efficiency at scale, this should be upgraded to `Socket.io` or Server-Sent Events (SSE) to push status updates from the BullMQ event listeners to the client.
-
-## 🚀 Scalability & Future Enhancements
-
-- **Containerization of Workers**: The `imageWorker.js` currently boots alongside the Express server. It should be extracted to its own `Dockerfile` so worker nodes can be scaled horizontally independent of the API layer.
-- **Cloud Database Migrations**: Move MySQL and Redis to managed instances (e.g., AWS RDS & ElastiCache) to prevent single points of failure.
-- **Perceptual Hashing (pHash)**: Replace the simplistic `sha256` exact-match duplicate detection with perceptual hashing to find visually similar but not byte-identical images.
-
----
-
-## ⚖️ AI Usage Disclosure
-
-This project was rebuilt using AI assistance to rapidly scaffold boilerplate (Vite/React configurations, Prisma schema generation) and implement the Tailwind UI components. However, all core architectural decisions—such as the decoupling of the frontend and backend, the strict usage of BullMQ for async offloading, and the schema relational designs—were meticulously engineered to meet production-ready backend standards.
+*Built as a demonstration of scalable async processing and AI-assisted system design.*

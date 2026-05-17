@@ -21,13 +21,11 @@ export default function HistoryTable({ history, onItemClick, selectedId, onDelet
     };
 
     const getVerdictDot = (verdict) => {
-        switch(verdict) {
-            case 'GOOD_QUALITY': return 'bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.8)]';
-            case 'ACCEPTABLE': return 'bg-success shadow-[0_0_8px_rgba(16,185,129,0.8)]';
-            case 'SUSPICIOUS': return 'bg-warning shadow-[0_0_8px_rgba(245,158,11,0.8)]';
-            case 'POOR_QUALITY': return 'bg-danger shadow-[0_0_8px_rgba(239,68,68,0.8)]';
-            default: return 'bg-slate-600';
-        }
+        if (!verdict) return 'bg-slate-600';
+        if (['CLEAR_TEXT_DOCUMENT', 'READABLE_DOCUMENT', 'VEHICLE_IDENTIFIABLE', 'VISUALLY_CLEAR_IMAGE', 'SEMANTICALLY_VALID_IMAGE'].includes(verdict)) return 'bg-success shadow-[0_0_8px_rgba(16,185,129,0.8)]';
+        if (['LOW_QUALITY_BUT_READABLE', 'TEXT_PARTIALLY_RECOVERABLE', 'NUMBER_PLATE_PARTIALLY_VISIBLE', 'LOW_VISIBILITY_CAPTURE', 'LOW_DETAIL_IMAGE', 'INFORMATION_RECOVERABLE', 'OVEREXPOSED_DOCUMENT'].includes(verdict)) return 'bg-warning shadow-[0_0_8px_rgba(245,158,11,0.8)]';
+        if (['UNUSABLE', 'DUPLICATE_VEHICLE_FRAME'].includes(verdict)) return 'bg-danger shadow-[0_0_8px_rgba(239,68,68,0.8)]';
+        return 'bg-slate-500';
     };
 
     return (
@@ -75,9 +73,11 @@ export default function HistoryTable({ history, onItemClick, selectedId, onDelet
                             <td className={isSelected ? 'bg-indigo-500/10' : ''}>
                                 <div className="flex items-center justify-between gap-4">
                                     <div className="flex items-center gap-2 whitespace-nowrap">
-                                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${getVerdictDot(item.analysisResult?.overallVerdict)}`} />
-                                        <span className={`font-mono text-[10px] font-bold ${isSelected ? 'text-indigo-200' : 'text-slate-400'}`}>
-                                            {item.analysisResult?.overallVerdict || 'PENDING'}
+                                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${item.status === 'FAILED' ? 'bg-danger shadow-[0_0_8px_rgba(239,68,68,0.8)]' : getVerdictDot(item.analysisResult?.overallVerdict)}`} />
+                                        <span className={`font-mono text-[10px] font-bold truncate max-w-[150px] ${item.status === 'FAILED' ? 'text-danger' : isSelected ? 'text-indigo-200' : 'text-slate-400'}`} title={item.failureReason?.message || item.analysisResult?.overallVerdict || 'PENDING'}>
+                                            {item.status === 'FAILED' 
+                                                ? (item.failureReason?.message?.split(':')[0] || 'PROCESSING_ERROR') 
+                                                : (item.analysisResult?.overallVerdict || 'PENDING')}
                                         </span>
                                     </div>
                                     <button 

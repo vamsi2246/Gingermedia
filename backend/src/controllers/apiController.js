@@ -43,9 +43,24 @@ exports.uploadUrl = async (req, res) => {
             return res.status(400).json({ status: 'error', message: 'No URL provided' });
         }
 
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch image from URL: ${response.statusText}`);
+        let response;
+        try {
+            response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        } catch (fetchError) {
+            const failedUpload = await prisma.upload.create({
+                data: {
+                    originalName: url.substring(url.lastIndexOf('/') + 1) || 'remote-fetch-failed',
+                    filename: 'fetch-timeout',
+                    mimeType: 'unknown',
+                    size: 0,
+                    status: 'FAILED',
+                    failureReason: {
+                        create: { message: `REMOTE_FETCH_TIMEOUT: Failed to fetch image - ${fetchError.message}`, step: 'url-ingestion' }
+                    }
+                }
+            });
+            return res.status(202).json({ status: 'success', data: { id: failedUpload.id, status: 'FAILED' } });
         }
 
         const contentType = response.headers.get('content-type') || '';
@@ -173,7 +188,7 @@ exports.getAnalytics = async (req, res) => {
         const failed = await prisma.upload.count({ where: { status: 'FAILED' } });
         
         const avgAgg = await prisma.analysisResult.aggregate({
-            _avg: { ocrConfidence: true }
+            _avg: { systemConfidence: true }
         });
 
         res.json({
@@ -182,7 +197,7 @@ exports.getAnalytics = async (req, res) => {
                 total,
                 completed,
                 failed,
-                avgConfidence: avgAgg._avg.ocrConfidence || 0
+                avgConfidence: avgAgg._avg.systemConfidence || 0
             }
         });
     } catch (error) {
@@ -195,7 +210,7 @@ exports.getRecent = async (req, res) => {
         const recent = await prisma.upload.findMany({
             orderBy: { createdAt: 'desc' },
             take: 10,
-            include: { analysisResult: true }
+            include: { analysisResult: true, failureReason: true }
         });
         
         res.json({
@@ -206,7 +221,8 @@ exports.getRecent = async (req, res) => {
                 filePath: `/uploads/${r.filename}`,
                 status: r.status,
                 createdAt: r.createdAt,
-                analysisResult: r.analysisResult
+                analysisResult: r.analysisResult,
+                failureReason: r.failureReason
             }))
         });
     } catch (error) {

@@ -91,33 +91,60 @@ async function processImage(filePath) {
         // Weighted Score: Dynamically reallocated based on ML classification
         let finalScore = (blurQuality * wBlur) + (ocrQuality * wOcr) + (brightnessQuality * wBright);
 
-        let overallVerdict = 'ACCEPTABLE';
+        let overallVerdict = 'LOW_CLARITY_BUT_USABLE';
+        let blurDescription = 'Object visibility is preserved, but the capture suffers from motion softness.';
+        let brightnessDescription = 'Lighting conditions are usable for visual interpretation.';
 
-        if (isDuplicate) {
-            overallVerdict = 'SUSPICIOUS';
-        } else if (finalScore >= 80) {
-            overallVerdict = 'GOOD_QUALITY';
-        } else if (finalScore >= 50) {
-            overallVerdict = 'ACCEPTABLE';
-        } else if (finalScore >= 30) {
-            overallVerdict = 'POOR_QUALITY';
+        // Dynamic Text Generation
+        if (blurQuality > 70) {
+            blurDescription = 'Fine details and structural boundaries are sharply preserved with minimal degradation.';
+        } else if (blurQuality < 30) {
+            blurDescription = 'Fine details are difficult to recover because the frame lacks edge sharpness.';
+        }
+
+        if (brightnessQuality > 80) {
+            brightnessDescription = 'Exposure levels appear stable with no major dark-region clipping.';
+        } else if (brightnessValue > 200) {
+            brightnessDescription = 'The frame is overexposed, washing out critical luminance details.';
+        } else if (brightnessValue < 50) {
+            brightnessDescription = 'Severe underexposure reduces information recoverability in dark regions.';
         } else {
-            overallVerdict = 'UNUSABLE';
+            brightnessDescription = 'Scene brightness maintains sufficient luminance for downstream analysis attempts.';
         }
 
-        // Failsafes to ensure realism
-        if (wOcr > 0 && ocrConfidence < 0.1 && blurScore > 70) {
-            overallVerdict = 'UNUSABLE';
-        } else if (wBlur > 0 && blurScore > 70 && overallVerdict !== 'UNUSABLE') {
-            overallVerdict = 'POOR_QUALITY'; // Severe blur caps quality at POOR_QUALITY
+        // New Detailed Verdicts
+        if (isDuplicate) {
+            overallVerdict = 'DUPLICATE_VEHICLE_FRAME';
+        } else if (detectedCategory === 'Document / Text') {
+            if (ocrQuality > 70 && blurQuality > 50) overallVerdict = 'CLEAR_TEXT_DOCUMENT';
+            else if (ocrQuality > 40 && blurQuality > 30) overallVerdict = 'READABLE_DOCUMENT';
+            else if (ocrQuality > 20) overallVerdict = 'TEXT_PARTIALLY_RECOVERABLE';
+            else if (brightnessValue > 200) overallVerdict = 'OVEREXPOSED_DOCUMENT';
+            else overallVerdict = 'LOW_QUALITY_BUT_READABLE';
+        } else if (detectedCategory === 'Portrait / Human' || detectedCategory === 'Landscape / Scenery') {
+            if (blurQuality > 60) overallVerdict = 'VISUALLY_CLEAR_IMAGE';
+            else if (blurQuality > 30 && brightnessQuality > 40) overallVerdict = 'SEMANTICALLY_VALID_IMAGE';
+            else if (blurQuality < 30) overallVerdict = 'LOW_DETAIL_IMAGE';
+            else overallVerdict = 'INFORMATION_RECOVERABLE';
+        } else {
+            // General Object / Vehicle
+            if (blurQuality > 50 && ocrQuality > 30) overallVerdict = 'VEHICLE_IDENTIFIABLE';
+            else if (ocrQuality > 10) overallVerdict = 'NUMBER_PLATE_PARTIALLY_VISIBLE';
+            else overallVerdict = 'LOW_VISIBILITY_CAPTURE';
         }
+
+        // System Confidence Calculation (0-1 range)
+        let systemConfidence = Math.max(0.1, Math.min(0.99, (finalScore + (patternValid ? 10 : 0)) / 100));
 
         return {
             blurScore,
+            blurDescription,
             brightnessValue,
             brightnessCategory,
+            brightnessDescription,
             ocrText: text.trim(),
             ocrConfidence,
+            systemConfidence,
             isDuplicate,
             patternValid,
             overallVerdict,
