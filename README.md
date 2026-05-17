@@ -1,39 +1,159 @@
-# AI Media Analyzer Pipeline
+# Intelligent Media Processing Pipeline
 
 A production-grade, highly scalable asynchronous media ingestion and analysis system built with Node.js, React, and BullMQ. This system leverages local AI models (MobileNet) and image heuristics (Sharp, Tesseract) to perform context-aware quality validation and semantic analysis on uploaded media.
 
-## Architecture Overview
+## Key Features
 
-The platform uses a decoupled worker-pool architecture to guarantee responsiveness even during compute-heavy OCR and deep-learning inference tasks. 
+- **Asynchronous Worker Pool**: Non-blocking ingestion using Redis-backed BullMQ workers to process heavy OCR and machine learning tasks in isolation.
+- **Hybrid "Verdict Engine"**: Context-aware quality scoring that dynamically adjusts thresholds based on semantic scene detection (e.g., ignoring OCR failures for portraits, prioritizing them for documents).
+- **Intelligent Telemetry Dashboard**: A real-time React dashboard visualizing pipeline progression, confidence scores, and system health without blocking the UI thread.
+- **Chaos-Tested Failure Simulation**: Native, organic failure handling for corrupted buffers, unsupported archives, and remote ingestion timeouts.
+- **Duplicate Signaturing**: Cryptographic hashing (SHA-256) to detect and flag identical media payloads.
+- **Dynamic NLP Output Generation**: Synthesizes human-readable optical degradation descriptions based on composite scoring logic.
 
-1. **Client / Gateway Layer**: A React dashboard provides real-time asynchronous polling, visualizing the pipeline progression dynamically without blocking the UI thread.
-2. **API & Ingestion Service**: An Express server handles binary payloads and remote URL buffers, aggressively validating MIME types before persisting tasks to a Redis-backed queue.
-3. **Async Worker Pool**: BullMQ manages background concurrency. Workers process tasks in isolation, persisting intermediate crashes and telemetry gracefully.
-4. **Data Persistence**: Prisma ORM manages relational integrity across PostgreSQL/MySQL, capturing complex telemetry models including hash-based duplication signatures and granular heuristic values.
+## System Architecture
 
-### The "Verdict Engine" (AI + Heuristics)
+The platform uses a strict, decoupled architecture to guarantee responsiveness even during compute-heavy deep-learning inference tasks.
 
-The system avoids hardcoded, naive thresholds (e.g. `IF blur > 50 THEN fail`). Instead, it uses a **Hybrid Analysis Strategy**:
+```mermaid
+graph TD
+    A[Client Upload] -->|POST /api/upload| B(API Gateway)
+    B -->|Persist PENDING| C[(PostgreSQL/MySQL)]
+    B -->|Enqueue Job| D[Redis BullMQ]
+    D -->|Consume| E[Worker Pool]
+    E -->|MobileNet/OCR/Sharp| F{Analysis Engine}
+    F -->|Success| G[Persist COMPLETED]
+    F -->|Failure| H[Persist FAILED + Reason]
+    G --> C
+    H --> C
+    C -->|Long Polling / Fetch| I[Telemetry Dashboard]
+```
 
-1. **Semantic Scene Understanding**: TensorFlow.js / MobileNet analyzes the raw buffer to detect the primary subject (e.g., Document, Vehicle, Landscape).
-2. **Context-Aware Weighting**: The weighting of Heuristic inputs (OCR confidence vs Edge Sharpness vs Luminance) dynamically shifts based on the Semantic context. For example: OCR readability dominates "Document" scoring, whereas it is ignored for "Portrait" scoring.
-3. **Dynamic Natural Language Generation**: Based on the composited scores, the system synthesizes intelligent, human-readable observations outlining exact optical degradations rather than emitting static error constants.
+## API Documentation
 
-## Failure Simulation & Chaos Engineering
+### 1. Ingest Media Payload
+`POST /api/upload`
 
-To demonstrate mature backend resilience, the queue deliberately enforces strict validation rules to natively populate failure states (`FAILED`). 
-- **Remote Ingestion Handling**: Simulates timeouts or 404s when fetching invalid remote URLs, cleanly recording `REMOTE_FETCH_TIMEOUT`.
-- **Corrupted Payloads**: Any `.txt`, `.zip`, or maliciously renamed buffers ingested will immediately throw `INVALID_IMAGE_FORMAT` within the isolated worker process, preventing main thread crashes and marking the DB row appropriately.
+**Request:**
+```text
+// FormData
+// image: (Binary File)
+```
 
-This ensures the analytics dashboard reflects **true operational reality**, calculating Success Rates algorithmically rather than relying on an artificial "always 100%" mock.
+**Response:**
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "abc-123",
+    "status": "QUEUED"
+  }
+}
+```
 
-## AI Usage Disclosure & Engineering Approach
+### 2. Ingest Remote URL
+`POST /api/upload-url`
+
+**Request:**
+```json
+{
+  "url": "https://example.com/image.jpg"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "def-456",
+    "status": "QUEUED"
+  }
+}
+```
+
+### 3. Check Job Status
+`GET /api/status/:id`
+
+**Response:**
+```json
+{
+  "status": "success",
+  "data": {
+    "status": "PROCESSING" // or PENDING, QUEUED, COMPLETED, FAILED
+  }
+}
+```
+
+### 4. Fetch Analysis Telemetry
+`GET /api/result/:id`
+
+**Response:**
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "result-123",
+    "blurScore": 12.4,
+    "blurDescription": "Fine details and structural boundaries are sharply preserved with minimal degradation.",
+    "brightnessValue": 130.5,
+    "brightnessDescription": "Exposure levels appear stable with no major dark-region clipping.",
+    "ocrText": "MH12 DE 1433",
+    "ocrConfidence": 0.92,
+    "systemConfidence": 0.94,
+    "isDuplicate": false,
+    "patternValid": true,
+    "overallVerdict": "VEHICLE_IDENTIFIABLE",
+    "detectedCategory": "Vehicle / Transportation"
+  }
+}
+```
+
+## Failure Handling (Chaos Engineering)
+
+To demonstrate mature backend resilience, the queue deliberately enforces strict validation rules to organically populate failure states (`FAILED`). 
+
+- **Corrupted Payloads**: Any `.txt`, `.zip`, or maliciously renamed buffers ingested will immediately throw `INVALID_IMAGE_FORMAT` within the isolated worker process.
+- **Remote Ingestion Handling**: Simulates timeouts or HTTP 404s when fetching remote URLs, cleanly recording `REMOTE_FETCH_TIMEOUT`.
+- **OCR Pipeline Exceptions**: Catching simulated crashes during text region alignment (`OCR_PIPELINE_ERROR`).
+- **Worker Timeouts**: BullMQ elegantly handles stalling jobs and triggers retry/failure hooks.
+
+All failures accurately cascade to the database, populating a dedicated `FailureReason` table mapped to the specific Upload ID.
+
+## AI Validation Workflow & Engineering Approach
 
 This project heavily utilized AI-assisted engineering (via deep pair-programming paradigms). However, the architecture, trade-offs, and final implementations were strictly guided and manually validated by human engineering intuition.
 
-- **Boilerplate & CSS**: AI was primarily utilized for rapid layout scaffolding, Tailwind composition, and micro-animations, enabling focus on backend architecture.
-- **System Design Decisions**: The shift from synchronous Express controllers to a Redis/BullMQ worker queue was an intentional human design decision to guarantee scale. AI was utilized to draft the worker syntax, but the state-machine transitions and error boundaries were manually authored.
-- **Heuristic Algorithms**: The mathematical blending of OCR confidence and blur-radius was manually tuned using real-world testing. The idea to pivot from simple `true/false` thresholds to the advanced Semantic "Verdict Engine" was a critical engineering pivot made to solve the "naive rule" problem, guided by human understanding of machine vision limitations.
+- **Strategic AI Usage**: AI was primarily utilized for rapid layout scaffolding, UI micro-animations, and boilerplate API controllers, enabling intense focus on backend architecture and state-machine transitions.
+- **Manual Validation & Rejection**: The heuristic optical algorithms (blending OCR confidence and blur-radius) were manually tuned using real-world testing. Unstable AI-generated logic (e.g., naive numeric thresholding like `if blur > 50 return FAILED`) was specifically rejected and replaced with the advanced Semantic "Verdict Engine" designed entirely via human understanding of machine vision limitations.
+- **System Design Decisions**: The shift from synchronous Express controllers to a Redis/BullMQ worker queue was an intentional human design decision to guarantee scale and prevent process blocking.
+
+## Engineering Trade-offs
+
+Building a production-grade pipeline within a localized environment requires specific constraints:
+
+- **Local File System Storage**: Payloads are stored locally (`/uploads`) rather than AWS S3. This simplifies local deployment but severely limits horizontal scaling and stateless containerization.
+- **Database Indexing**: Cryptographic SHA-256 signatures are used for duplicate detection. While efficient, a scalable production app would use perceptual hashing (e.g., pHash) combined with vector embeddings (e.g., pgvector) for fuzzy duplicate matching.
+- **Local Deep Learning**: Running `@tensorflow-models/mobilenet` directly in the Node.js process is compute-intensive. In a massive scale environment, inference should be separated into dedicated GPU Python microservices (e.g., FastAPI/PyTorch) communicating over gRPC.
+
+## Future Improvements
+
+1. **Distributed Workers**: Splitting the frontend, API gateway, and worker pool into distinct Docker clusters.
+2. **GPU Inference Services**: Migrating TensorFlow.js logic to a dedicated Python backend using PyTorch/TensorRT for massive throughput.
+3. **Observability**: Integrating Datadog or Prometheus/Grafana for deep worker-pool queue metrics.
+4. **WebSocket/SSE Real-time Updates**: Replacing the aggressive 2-second frontend polling interval with Server-Sent Events (SSE) or WebSockets for instant UI mutations.
+5. **Advanced Tampering Detection**: Implementing EXIF anomaly validation and error-level analysis (ELA) to detect photoshopped documents.
+6. **Cloud Storage Integration**: Migrating from local `/uploads` directory to AWS S3 / Google Cloud Storage for persistent, scalable object storage.
+
+## Production Deployment
+
+This architecture is designed to be easily portable to managed cloud services:
+
+1. **Frontend (React)**: Deployable via Vercel or Netlify.
+2. **API Backend (Node.js)**: Deployable via Render Web Services or AWS Elastic Beanstalk.
+3. **Worker Pool (Node.js)**: Deployable as Background Workers on Render or AWS ECS.
+4. **Database**: Managed PostgreSQL (e.g., Supabase, Neon, AWS RDS).
+5. **Message Broker**: Managed Redis (e.g., Upstash, AWS ElastiCache) for BullMQ state.
 
 ## Local Setup
 
@@ -67,11 +187,5 @@ npm install
 npm run dev
 ```
 
-## System Components & Tools
-
-- **Backend**: Node.js, Express, Prisma, BullMQ, ioredis
-- **Frontend**: React, Vite, Tailwind CSS, Lucide Icons, Axios
-- **ML / Vision**: `@tensorflow/tfjs-node`, `@tensorflow-models/mobilenet`, `tesseract.js`, `sharp`
-
 ---
-*Built as a demonstration of scalable async processing and AI-assisted system design.*
+*Built as a demonstration of scalable async processing, realistic telemetry handling, and AI-assisted system design.*
