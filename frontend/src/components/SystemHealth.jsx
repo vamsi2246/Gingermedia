@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
 import { Server } from 'lucide-react';
+import apiClient from '../lib/api';
 
 export default function SystemHealth() {
     const [health, setHealth] = useState({
@@ -11,7 +11,7 @@ export default function SystemHealth() {
     useEffect(() => {
         const fetchHealth = async () => {
             try {
-                const res = await axios.get('http://localhost:3000/api/health');
+                const res = await apiClient.get('/api/health');
                 setHealth(res.data);
             } catch (e) {
                 setHealth({

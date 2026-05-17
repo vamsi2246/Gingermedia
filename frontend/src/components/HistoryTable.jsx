@@ -1,5 +1,6 @@
 import { Terminal, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { resolveAssetUrl } from '../lib/api';
 
 export default function HistoryTable({ history, onItemClick, selectedId, onDelete }) {
     if (!history || history.length === 0) {
@@ -53,7 +54,7 @@ export default function HistoryTable({ history, onItemClick, selectedId, onDelet
                                 <div className="flex items-center gap-3">
                                     <div className={`w-8 h-8 rounded-lg border overflow-hidden shrink-0 transition-colors 
                                         ${isSelected ? 'border-indigo-400 shadow-[0_0_10px_rgba(79,70,229,0.5)]' : 'border-white/10 bg-black'}`}>
-                                        <img src={`http://localhost:3000${item.filePath}`} alt="thumb" className="w-full h-full object-cover opacity-80" />
+                                        <img src={resolveAssetUrl(item.filePath)} alt="thumb" className="w-full h-full object-cover opacity-80" />
                                     </div>
                                     <span className={`font-mono text-[11px] font-bold truncate transition-colors max-w-[150px] ${isSelected ? 'text-indigo-300' : 'text-slate-300'}`} title={item.originalName}>
                                         {item.originalName}

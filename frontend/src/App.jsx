@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
 import { Cpu, Activity, CheckCircle, XCircle, Database, Layers, Sparkles, Scan, AlertCircle, AlertTriangle, ZoomIn } from 'lucide-react';
 import UploadZone from './components/UploadZone';
 import PipelineVisualizer from './components/PipelineVisualizer';
@@ -8,6 +7,7 @@ import SystemHealth from './components/SystemHealth';
 import HistoryTable from './components/HistoryTable';
 import ErrorBoundary from './components/ErrorBoundary';
 import ImagePreviewModal from './components/ImagePreviewModal';
+import apiClient, { resolveAssetUrl } from './lib/api';
 
 function App() {
     const [file, setFile] = useState(null);
@@ -36,8 +36,8 @@ function App() {
     const fetchDashboardData = async () => {
         try {
             const [analyticsRes, historyRes] = await Promise.all([
-                axios.get('http://localhost:3000/api/analytics'),
-                axios.get('http://localhost:3000/api/recent')
+                apiClient.get('/api/analytics'),
+                apiClient.get('/api/recent')
             ]);
             setAnalytics(analyticsRes.data.data);
             setHistory(historyRes.data.data);
@@ -64,7 +64,7 @@ function App() {
             const currentJobId = activeJobIds[0];
 
             try {
-                const res = await axios.get(`http://localhost:3000/api/status/${currentJobId}`);
+                const res = await apiClient.get(`/api/status/${currentJobId}`);
                 const { status } = res.data.data;
 
                 if (status === 'PROCESSING') {
@@ -131,10 +131,10 @@ function App() {
     const fetchFinalResult = async (jobId) => {
         setIsFetchingResult(true);
         try {
-            const resultRes = await axios.get(`http://localhost:3000/api/result/${jobId}`);
+            const resultRes = await apiClient.get(`/api/result/${jobId}`);
             const data = resultRes.data.data;
             setResults(data);
-            setPreview(`http://localhost:3000/uploads/${data.uploadInfo.filename}`);
+            setPreview(resolveAssetUrl(`/uploads/${data.uploadInfo.filename}`));
         } catch (resultErr) {
             console.error("Failed to fetch results:", resultErr);
             setUploadError("Processing finished, but failed to fetch analysis results.");
@@ -188,13 +188,15 @@ function App() {
                 for (const f of files) {
                     const formData = new FormData();
                     formData.append('image', f);
-                    const res = await axios.post('http://localhost:3000/api/upload', formData);
+                    const res = await apiClient.post('/api/upload', formData, {
+                        headers: { 'Content-Type': 'multipart/form-data' },
+                    });
                     newJobIds.push(res.data.data.id);
                 }
             } else if (payload.type === 'url') {
                 setFile(null);
                 setPreview(payload.data);
-                const res = await axios.post('http://localhost:3000/api/upload-url', { url: payload.data });
+                const res = await apiClient.post('/api/upload-url', { url: payload.data });
                 newJobIds.push(res.data.data.id);
             }
 
@@ -223,10 +225,10 @@ function App() {
         setSelectedHistoryId(id);
         setIsFetchingResult(true);
         try {
-            const resultRes = await axios.get(`http://localhost:3000/api/result/${id}`);
+            const resultRes = await apiClient.get(`/api/result/${id}`);
             const data = resultRes.data.data;
             setResults(data);
-            setPreview(`http://localhost:3000/uploads/${data.uploadInfo.filename}`);
+            setPreview(resolveAssetUrl(`/uploads/${data.uploadInfo.filename}`));
             setStage('completed');
         } catch (err) {
             console.error("Failed to load historical data", err);
@@ -246,7 +248,7 @@ function App() {
         }
         
         try {
-            await axios.delete(`http://localhost:3000/api/result/${id}`);
+            await apiClient.delete(`/api/result/${id}`);
             fetchDashboardData();
         } catch (err) {
             console.error("Delete failed", err);
