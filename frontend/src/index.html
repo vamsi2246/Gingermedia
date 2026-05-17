@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Processing Pipeline</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Media Processing Pipeline</h1>
+            <p>Scalable Asynchronous Image Analysis Dashboard</p>
+        </header>
+
+        <main>
+            <section class="card" id="upload-card">
+                <h2>Upload Image</h2>
+                <div id="drop-zone">
+                    <p>Drag & drop or click to upload</p>
+                    <input type="file" id="file-input" hidden accept="image/*">
+                </div>
+                <div id="preview-container" class="hidden">
+                    <img id="image-preview" src="" alt="Preview">
+                </div>
+                <button id="upload-btn" disabled>Start Analysis</button>
+                <div id="error-container" class="hidden"></div>
+            </section>
+
+            <section class="card hidden" id="status-card">
+                <h2>Pipeline Status</h2>
+                <div id="status-display">
+                    <div class="status-indicator">
+                        <div class="spinner"></div>
+                        <span id="status-text">Pending...</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card hidden" id="results-card">
+                <h2>Analysis Results</h2>
+                <div id="results-grid" class="results-grid">
+                    <!-- Results populated by JS -->
+                </div>
+            </section>
+        </main>
+    </div>
+    <script type="module" src="js/ui.js"></script>
+</body>
+</html>
