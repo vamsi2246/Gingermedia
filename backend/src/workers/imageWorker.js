@@ -40,15 +40,18 @@ const worker = new Worker('image-processing', async job => {
         let results;
 
         if (existing) {
-            console.log(`[Worker] Duplicate detected for job ${job.id}`);
-            // Clone previous results, flag as duplicate, maybe update verdict
-            // User requested: IF blurry, low confidence, duplicate THEN SUSPICIOUS
+            console.log(`[Worker] Duplicate detected for job ${job.id} — scene: ${existing.detectedCategory}`);
+
+            // Inherit the original scene-appropriate verdict.
+            // Only apply SUSPICIOUS override if it's a VEHICLE scene with blurry + weak plate confidence,
+            // since OCR confidence is not a meaningful quality signal for portraits or landscapes.
             let newVerdict = existing.overallVerdict;
-            const isBlurry = existing.blurScore > 40;
-            const isLowConfidence = existing.ocrConfidence < 0.6;
-            
-            if (isBlurry && isLowConfidence) {
-                newVerdict = 'SUSPICIOUS';
+            const isVehicleScene = existing.detectedCategory === 'Vehicle / Transportation';
+            const isBlurry = existing.blurScore > 55;
+            const isWeakPlate = existing.ocrConfidence < 0.5;
+
+            if (isVehicleScene && isBlurry && isWeakPlate) {
+                newVerdict = 'SUSPICIOUS_DUPLICATE';
             }
 
             results = {
