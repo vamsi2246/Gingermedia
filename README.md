@@ -8,7 +8,7 @@
 
 | Service | URL |
 |---|---|
-| **Frontend** | https://gingermedia.vercel.app |
+| **Frontend** | [https://gingermedia.vercel.app](https://gingermedia-weld.vercel.app/) |
 | **Backend API** | https://gingermedia-backend-cybe.onrender.com |
 | **Health Endpoint** | https://gingermedia-backend-cybe.onrender.com/api/health |
 
