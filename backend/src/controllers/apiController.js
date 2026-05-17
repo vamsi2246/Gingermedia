@@ -36,6 +36,58 @@ exports.uploadImage = async (req, res) => {
     }
 };
 
+exports.uploadUrl = async (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url) {
+            return res.status(400).json({ status: 'error', message: 'No URL provided' });
+        }
+
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch image from URL: ${response.statusText}`);
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.startsWith('image/')) {
+            return res.status(400).json({ status: 'error', message: 'URL does not point to a valid image' });
+        }
+
+        const extension = contentType.split('/')[1] || 'jpg';
+        const filename = `${Date.now()}-url-upload.${extension}`;
+        const filePath = path.join(process.cwd(), 'uploads', filename);
+
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        
+        fs.writeFileSync(filePath, buffer);
+
+        const upload = await prisma.upload.create({
+            data: {
+                originalName: url.substring(url.lastIndexOf('/') + 1) || filename,
+                filename: filename,
+                mimeType: contentType,
+                size: buffer.length,
+                status: 'QUEUED'
+            }
+        });
+
+        // Add to BullMQ
+        await imageQueue.add('process-image', {
+            uploadId: upload.id,
+            filePath: filePath
+        });
+
+        res.status(202).json({
+            status: 'success',
+            data: { id: upload.id, status: 'QUEUED' }
+        });
+    } catch (error) {
+        console.error('URL Upload Error:', error);
+        res.status(500).json({ status: 'error', message: error.message || 'Internal server error' });
+    }
+};
+
 exports.getStatus = async (req, res) => {
     try {
         const upload = await prisma.upload.findUnique({

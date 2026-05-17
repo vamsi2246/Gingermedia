@@ -37,6 +37,7 @@ model AnalysisResult {
   patternValid       Boolean  @default(false)
   overallVerdict     String?
   imageHash          String?
+  detectedCategory   String?
   
   createdAt          DateTime @default(now())
   

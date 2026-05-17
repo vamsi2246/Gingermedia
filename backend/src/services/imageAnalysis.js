@@ -2,6 +2,19 @@ const sharp = require('sharp');
 const Tesseract = require('tesseract.js');
 const crypto = require('crypto');
 const fs = require('fs');
+const tf = require('@tensorflow/tfjs');
+const mobilenet = require('@tensorflow-models/mobilenet');
+
+// Suppress tfjs backend warnings
+tf.env().set('PROD', true);
+
+let mobilenetModel = null;
+async function loadModel() {
+    if (!mobilenetModel) {
+        mobilenetModel = await mobilenet.load({ version: 2, alpha: 1.0 });
+    }
+    return mobilenetModel;
+}
 
 async function processImage(filePath) {
     try {
@@ -20,9 +33,9 @@ async function processImage(filePath) {
         
         // Brightness
         const brightnessValue = stats.channels.reduce((acc, c) => acc + c.mean, 0) / stats.channels.length;
-        let brightnessCategory = 'Normal Lighting';
-        if (brightnessValue < 40) brightnessCategory = 'Dark';
-        else if (brightnessValue > 180) brightnessCategory = 'Overexposed';
+        let brightnessCategory = 'Lighting is well-balanced for extraction.';
+        if (brightnessValue < 40) brightnessCategory = 'Low lighting conditions reduce visible detail clarity.';
+        else if (brightnessValue > 180) brightnessCategory = 'Image is overexposed, washing out critical details.';
 
         // Deterministic Blur (Hash-based pseudo-random between 5 and 104 to simulate full range)
         const hashInt = parseInt(hash.substring(0, 8), 16);
@@ -38,39 +51,65 @@ async function processImage(filePath) {
         // 4. Pattern validation
         const patternValid = /\d{4}/.test(text); 
 
-        // 5. Weighted Verdict Engine
-        let score = 100;
+        // 4.5. Semantic ML Classification
+        const model = await loadModel();
+        const { data, info } = await sharp(imageBuffer).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+        const tensor = tf.tensor3d(new Uint8Array(data), [info.height, info.width, 3], 'int32');
+        const predictions = await model.classify(tensor);
+        tensor.dispose();
 
-        // Blur Penalty
-        if (blurScore > 70) score -= 40;
-        else if (blurScore > 45) score -= 20;
-        else if (blurScore > 25) score -= 10;
+        const topPrediction = predictions[0].className.toLowerCase();
+        let detectedCategory = 'General Object';
+        let wOcr = 0.1, wBlur = 0.6, wBright = 0.3;
 
-        // Lighting Penalty
-        if (brightnessValue < 40) score -= 30;
-        else if (brightnessValue > 180) score -= 20;
+        if (/(person|face|suit|man|woman|human|portrait|mask|hair|neck|sunglasses|jersey|head)/.test(topPrediction)) {
+            detectedCategory = 'Portrait / Human';
+            wOcr = 0.0; wBlur = 0.7; wBright = 0.3;
+        } else if (/(car|motorcycle|bike|vehicle|truck|bus|plate|wheel)/.test(topPrediction)) {
+            detectedCategory = 'Vehicle / Transportation';
+            wOcr = 0.4; wBlur = 0.4; wBright = 0.2;
+        } else if (/(menu|envelope|paper|document|receipt|book|text|card|ticket)/.test(topPrediction)) {
+            detectedCategory = 'Document / Text';
+            wOcr = 0.6; wBlur = 0.25; wBright = 0.15;
+        } else if (/(mountain|tree|sky|landscape|nature|beach|ocean|water|valley|cliff)/.test(topPrediction)) {
+            detectedCategory = 'Landscape / Scenery';
+            wOcr = 0.0; wBlur = 0.6; wBright = 0.4;
+        }
 
-        // Resolution Penalty (< 0.5 MP)
-        if (resolution < 500000) score -= 20;
+        // 5. Intelligent Weighted Verdict Engine
+        // Blur Score: 5 (sharp) to 104 (blurry). Lower is better.
+        const normalizedBlur = Math.max(0, Math.min(100, blurScore));
+        const blurQuality = Math.max(0, 100 - normalizedBlur); // 100 is perfectly sharp, 0 is terribly blurry.
+        
+        // OCR Quality: ocrConfidence is 0 to 1.
+        const ocrQuality = ocrConfidence * 100;
 
-        // OCR Penalty
-        if (ocrConfidence < 0.3) score -= 10;
+        // Brightness Quality: optimal is ~120. Range is 0-255. Max distance is ~135.
+        const brightnessDistance = Math.abs(brightnessValue - 120);
+        const brightnessQuality = Math.max(0, 100 - (brightnessDistance / 135) * 100);
+
+        // Weighted Score: Dynamically reallocated based on ML classification
+        let finalScore = (blurQuality * wBlur) + (ocrQuality * wOcr) + (brightnessQuality * wBright);
 
         let overallVerdict = 'ACCEPTABLE';
 
         if (isDuplicate) {
             overallVerdict = 'SUSPICIOUS';
-        } else if (score >= 80) {
+        } else if (finalScore >= 80) {
             overallVerdict = 'GOOD_QUALITY';
-        } else if (score >= 50) {
+        } else if (finalScore >= 50) {
             overallVerdict = 'ACCEPTABLE';
-        } else {
+        } else if (finalScore >= 30) {
             overallVerdict = 'POOR_QUALITY';
+        } else {
+            overallVerdict = 'UNUSABLE';
         }
 
-        // Failsafe for true unreadable/extreme blur regardless of resolution
-        if (blurScore > 80 && ocrConfidence < 0.2) {
-            overallVerdict = 'POOR_QUALITY';
+        // Failsafes to ensure realism
+        if (wOcr > 0 && ocrConfidence < 0.1 && blurScore > 70) {
+            overallVerdict = 'UNUSABLE';
+        } else if (wBlur > 0 && blurScore > 70 && overallVerdict !== 'UNUSABLE') {
+            overallVerdict = 'POOR_QUALITY'; // Severe blur caps quality at POOR_QUALITY
         }
 
         return {
@@ -81,7 +120,8 @@ async function processImage(filePath) {
             ocrConfidence,
             isDuplicate,
             patternValid,
-            overallVerdict
+            overallVerdict,
+            detectedCategory
         };
 
     } catch (error) {

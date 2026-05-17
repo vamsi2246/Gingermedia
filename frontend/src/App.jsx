@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Cpu, Activity, CheckCircle, XCircle, Database, Layers, Sparkles, Scan, AlertCircle, AlertTriangle } from 'lucide-react';
+import { Cpu, Activity, CheckCircle, XCircle, Database, Layers, Sparkles, Scan, AlertCircle, AlertTriangle, ZoomIn } from 'lucide-react';
 import UploadZone from './components/UploadZone';
 import PipelineVisualizer from './components/PipelineVisualizer';
 import MetricCard from './components/MetricCard';
 import SystemHealth from './components/SystemHealth';
 import HistoryTable from './components/HistoryTable';
 import ErrorBoundary from './components/ErrorBoundary';
+import ImagePreviewModal from './components/ImagePreviewModal';
 
 function App() {
     const [file, setFile] = useState(null);
@@ -16,7 +17,8 @@ function App() {
     const [stage, setStage] = useState('pending'); 
     
     // Processing State
-    const [activeJobId, setActiveJobId] = useState(null);
+    const [activeJobIds, setActiveJobIds] = useState([]);
+    const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
     const [selectedHistoryId, setSelectedHistoryId] = useState(null);
     const [results, setResults] = useState(null);
     const [isFetchingResult, setIsFetchingResult] = useState(false);
@@ -57,17 +59,17 @@ function App() {
         let mockStageTimeout1, mockStageTimeout2, mockStageTimeout3;
 
         const pollStatus = async () => {
-            if (!activeJobId) return;
+            if (activeJobIds.length === 0) return;
+
+            const currentJobId = activeJobIds[0];
 
             try {
-                const res = await axios.get(`http://localhost:3000/api/status/${activeJobId}`);
+                const res = await axios.get(`http://localhost:3000/api/status/${currentJobId}`);
                 const { status } = res.data.data;
 
                 if (status === 'PROCESSING') {
-                    // Start the visual progression if we just transitioned from queued
                     setStage((currentStage) => {
                         if (currentStage === 'queued' || currentStage === 'uploaded') {
-                            // Trigger the mock visual progression for the UI
                             mockStageTimeout1 = setTimeout(() => setStage('ocr'), 1500);
                             mockStageTimeout2 = setTimeout(() => setStage('analysis'), 3000);
                             mockStageTimeout3 = setTimeout(() => setStage('duplicate'), 4500);
@@ -76,49 +78,45 @@ function App() {
                         return currentStage;
                     });
                 } else if (status === 'COMPLETED') {
-                    // Processing finished! Clear the interval and fetch the result immediately.
-                    clearInterval(pollInterval);
-                    clearTimeout(mockStageTimeout1);
-                    clearTimeout(mockStageTimeout2);
-                    clearTimeout(mockStageTimeout3);
-                    
-                    setStage('completed');
-                    setIsFetchingResult(true);
-                    
-                    try {
-                        const resultRes = await axios.get(`http://localhost:3000/api/result/${activeJobId}`);
-                        const data = resultRes.data.data;
-                        setResults(data);
-                        setPreview(`http://localhost:3000/uploads/${data.uploadInfo.filename}`);
-                        // Force a dashboard update immediately after success
-                        await fetchDashboardData();
-                    } catch (resultErr) {
-                        console.error("Failed to fetch results:", resultErr);
-                        setUploadError("Processing finished, but failed to fetch analysis results.");
-                        setStage('error');
-                    } finally {
-                        setIsFetchingResult(false);
-                        setActiveJobId(null);
-                    }
+                    // Update dashboard so the completed item appears in history immediately
+                    await fetchDashboardData();
+
+                    setActiveJobIds(prev => {
+                        const newQueue = prev.filter(id => id !== currentJobId);
+                        if (newQueue.length === 0) {
+                            clearInterval(pollInterval);
+                            clearTimeout(mockStageTimeout1);
+                            clearTimeout(mockStageTimeout2);
+                            clearTimeout(mockStageTimeout3);
+                            setStage('completed');
+                            fetchFinalResult(currentJobId);
+                        } else {
+                            setStage('queued'); // Start visualizer for next job
+                        }
+                        return newQueue;
+                    });
                 } else if (status === 'FAILED') {
-                    clearInterval(pollInterval);
-                    clearTimeout(mockStageTimeout1);
-                    clearTimeout(mockStageTimeout2);
-                    clearTimeout(mockStageTimeout3);
-                    setUploadError("The worker encountered an error while processing the payload.");
-                    setStage('error');
-                    setActiveJobId(null);
+                    setActiveJobIds(prev => {
+                        const newQueue = prev.filter(id => id !== currentJobId);
+                        if (newQueue.length === 0) {
+                            clearInterval(pollInterval);
+                            clearTimeout(mockStageTimeout1);
+                            clearTimeout(mockStageTimeout2);
+                            clearTimeout(mockStageTimeout3);
+                            setUploadError("The worker encountered an error while processing the payload.");
+                            setStage('error');
+                        }
+                        return newQueue;
+                    });
+                    await fetchDashboardData();
                 }
             } catch (err) {
-                // We ignore 404s (job might not be written to DB yet) or temporary network blips
                 console.warn("Polling warning:", err);
             }
         };
 
-        if (activeJobId) {
-            // Poll every 2 seconds
+        if (activeJobIds.length > 0) {
             pollInterval = setInterval(pollStatus, 2000);
-            // Also run immediately once
             pollStatus();
         }
 
@@ -128,7 +126,23 @@ function App() {
             clearTimeout(mockStageTimeout2);
             clearTimeout(mockStageTimeout3);
         };
-    }, [activeJobId]);
+    }, [activeJobIds]);
+
+    const fetchFinalResult = async (jobId) => {
+        setIsFetchingResult(true);
+        try {
+            const resultRes = await axios.get(`http://localhost:3000/api/result/${jobId}`);
+            const data = resultRes.data.data;
+            setResults(data);
+            setPreview(`http://localhost:3000/uploads/${data.uploadInfo.filename}`);
+        } catch (resultErr) {
+            console.error("Failed to fetch results:", resultErr);
+            setUploadError("Processing finished, but failed to fetch analysis results.");
+            setStage('error');
+        } finally {
+            setIsFetchingResult(false);
+        }
+    };
 
     // Resizing Logic
     useEffect(() => {
@@ -155,24 +169,37 @@ function App() {
         };
     }, []);
 
-    const handleUpload = async (selectedFile) => {
-        setFile(selectedFile);
-        setPreview(URL.createObjectURL(selectedFile));
+    const handleUpload = async (payload) => {
         setStage('uploaded');
         setResults(null);
         setUploadError(null);
-        setActiveJobId(null);
         setSelectedHistoryId(null);
 
-        const formData = new FormData();
-        formData.append('image', selectedFile);
-
         try {
-            const res = await axios.post('http://localhost:3000/api/upload', formData);
-            const { id } = res.data.data;
+            const newJobIds = [];
             
+            if (payload.type === 'files') {
+                const files = payload.data;
+                if (files.length > 0) {
+                    setFile(files[0]);
+                    setPreview(URL.createObjectURL(files[0]));
+                }
+                
+                for (const f of files) {
+                    const formData = new FormData();
+                    formData.append('image', f);
+                    const res = await axios.post('http://localhost:3000/api/upload', formData);
+                    newJobIds.push(res.data.data.id);
+                }
+            } else if (payload.type === 'url') {
+                setFile(null);
+                setPreview(payload.data);
+                const res = await axios.post('http://localhost:3000/api/upload-url', { url: payload.data });
+                newJobIds.push(res.data.data.id);
+            }
+
+            setActiveJobIds(prev => [...prev, ...newJobIds]);
             setStage('queued');
-            setActiveJobId(id); // This triggers the useEffect polling
             
         } catch (error) {
             console.error('Upload Failed', error);
@@ -187,7 +214,7 @@ function App() {
         setFile(null);
         setPreview(null);
         setUploadError(null);
-        setActiveJobId(null);
+        setActiveJobIds([]);
         setSelectedHistoryId(null);
     };
 
@@ -230,10 +257,10 @@ function App() {
 
     const getInterpretedBlur = (score) => {
         if (!score && score !== 0) return "Unknown";
-        if (score > 70) return "Severe Blur";
-        if (score > 45) return "Moderately Blurry";
-        if (score > 25) return "Slightly Soft";
-        return "Sharp";
+        if (score > 70) return "Image quality is severely degraded due to excessive blur.";
+        if (score > 45) return "Noticeable blur affecting overall clarity.";
+        if (score > 25) return "Image contains slight softness but remains visually usable.";
+        return "Image is sharp with well-defined edges.";
     };
 
     return (
@@ -338,7 +365,7 @@ function App() {
                                 <div className="flex items-center gap-2">
                                     <div className={`w-2 h-2 rounded-full ${(stage === 'pending' || stage === 'error') ? 'bg-slate-500' : 'bg-cyan-400 animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.8)]'}`} />
                                     <span className="text-xs font-mono font-bold tracking-wider text-slate-300 uppercase">
-                                        {stage === 'error' ? 'SYSTEM_HALTED' : (stage === 'pending' ? 'IDLE' : 'ACTIVE_JOB')}
+                                        {stage === 'error' ? 'SYSTEM_HALTED' : (stage === 'pending' ? 'READY' : 'ACTIVE_JOB')}
                                     </span>
                                 </div>
                             </div>
@@ -397,12 +424,24 @@ function App() {
 
                                 <div className="grid grid-cols-[300px_1fr] gap-8">
                                     <div className="flex flex-col gap-4">
-                                        <div className="w-full aspect-[3/4] rounded-2xl overflow-hidden border border-white/10 bg-black relative group shadow-2xl">
-                                            <img src={preview} className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition-opacity duration-500" alt="Preview" />
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
+                                        <div 
+                                            className="w-full aspect-[3/4] rounded-2xl overflow-hidden border border-white/10 bg-black relative group shadow-2xl cursor-pointer"
+                                            onClick={() => setIsPreviewModalOpen(true)}
+                                        >
+                                            <img 
+                                                src={preview} 
+                                                className="w-full h-full object-cover opacity-70 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500" 
+                                                alt="Preview" 
+                                            />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none transition-all duration-500 group-hover:opacity-50" />
+                                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                                                <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-[0_0_30px_rgba(6,182,212,0.5)]">
+                                                    <ZoomIn className="w-8 h-8 text-cyan-400" />
+                                                </div>
+                                            </div>
                                             <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end">
-                                                <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2 text-xs font-mono text-slate-300">
-                                                    <Scan className="w-3.5 h-3.5" /> ID: {results.uploadInfo?.id?.substring(0,8) || results.id?.substring(0,8)}
+                                                <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2 text-xs font-mono text-slate-300 group-hover:border-cyan-400/50 transition-colors">
+                                                    <Scan className="w-3.5 h-3.5 group-hover:text-cyan-400" /> ID: {results.uploadInfo?.id?.substring(0,8) || results.id?.substring(0,8)}
                                                 </div>
                                             </div>
                                         </div>
@@ -423,7 +462,7 @@ function App() {
                                         <MetricCard 
                                             title="Brightness" 
                                             icon={Activity} 
-                                            status={results.brightnessCategory === 'Normal Lighting' ? 'ok' : 'warn'} 
+                                            status={results.brightnessValue >= 40 && results.brightnessValue <= 180 ? 'ok' : 'warn'} 
                                             value={results.brightnessCategory || 'Unknown'} 
                                             subtext={`LUMINANCE: ${Math.round(results.brightnessValue || 0)}`} 
                                             progress={(results.brightnessValue || 0) / 2.5} 
@@ -432,7 +471,7 @@ function App() {
                                             title="OCR Extraction" 
                                             icon={Scan} 
                                             colSpan={true} 
-                                            value={results.ocrConfidence < 0.3 ? 'Image does not contain clear extractable text.' : (results.ocrText || 'Image does not contain clear extractable text.')} 
+                                            value={results.ocrConfidence < 0.3 ? 'No readable structured text could be extracted.' : (results.ocrText || 'No readable structured text could be extracted.')} 
                                             subtext={`CONFIDENCE: ${((results.ocrConfidence || 0) * 100).toFixed(0)}%`} 
                                             isCode={results.ocrConfidence >= 0.3 && results.ocrText} 
                                         />
@@ -444,11 +483,11 @@ function App() {
                                             isCode={false} 
                                         />
                                         <MetricCard 
-                                            title="Pattern Check" 
-                                            icon={CheckCircle} 
-                                            status={results.patternValid ? 'ok' : 'err'} 
-                                            value={results.patternValid ? 'Structured text detected' : 'No readable structured text found'} 
-                                            isCode={false} 
+                                            title="Image Category" 
+                                            icon={Cpu} 
+                                            status="ok" 
+                                            value={results.detectedCategory || 'General Object'} 
+                                            subtext="AI SEMANTIC CLASSIFICATION" 
                                         />
                                     </div>
                                 </div>
@@ -503,6 +542,7 @@ function App() {
                     </div>
                 </ErrorBoundary>
             </main>
+            <ImagePreviewModal isOpen={isPreviewModalOpen} src={preview} onClose={() => setIsPreviewModalOpen(false)} />
         </>
     );
 }

@@ -23,6 +23,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 router.post('/upload', upload.single('image'), apiController.uploadImage);
+router.post('/upload-url', apiController.uploadUrl);
 router.get('/status/:id', apiController.getStatus);
 router.get('/result/:id', apiController.getResult);
 router.get('/health', apiController.getHealth);

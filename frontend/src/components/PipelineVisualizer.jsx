@@ -4,11 +4,11 @@ import { Upload, ListOrdered, Cpu, Scan, Sparkles, Layers, CheckCircle2 } from '
 export default function PipelineVisualizer({ currentStage }) {
     const stages = [
         { id: 'uploaded', label: 'Uploaded', icon: Upload },
-        { id: 'queued', label: 'Queued', icon: ListOrdered },
-        { id: 'worker', label: 'Worker', icon: Cpu },
-        { id: 'ocr', label: 'OCR', icon: Scan },
+        { id: 'queued', label: 'Pending Jobs', icon: ListOrdered },
+        { id: 'worker', label: 'Processing Engine', icon: Cpu },
+        { id: 'ocr', label: 'Text Detection', icon: Scan },
         { id: 'analysis', label: 'Analysis', icon: Sparkles },
-        { id: 'duplicate', label: 'Duplicate Check', icon: Layers },
+        { id: 'duplicate', label: 'Similarity Scan', icon: Layers },
         { id: 'completed', label: 'Completed', icon: CheckCircle2 }
     ];
 

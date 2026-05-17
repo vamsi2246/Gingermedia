@@ -45,7 +45,8 @@ const worker = new Worker('image-processing', async job => {
                 ocrConfidence: existing.ocrConfidence,
                 isDuplicate: true,
                 patternValid: existing.patternValid,
-                overallVerdict: newVerdict
+                overallVerdict: newVerdict,
+                detectedCategory: existing.detectedCategory
             };
         } else {
             console.log(`[Worker] Running full analysis for job ${job.id}`);
@@ -64,6 +65,7 @@ const worker = new Worker('image-processing', async job => {
                 isDuplicate: results.isDuplicate,
                 patternValid: results.patternValid,
                 overallVerdict: results.overallVerdict,
+                detectedCategory: results.detectedCategory,
                 imageHash: hash
             }
         });
