@@ -7,6 +7,7 @@ generator client {
 
 datasource db {
   provider = "mysql"
+  url      = env("DATABASE_URL")
 }
 
 model Upload {
@@ -35,6 +36,7 @@ model AnalysisResult {
   isDuplicate        Boolean  @default(false)
   patternValid       Boolean  @default(false)
   overallVerdict     String?
+  imageHash          String?
   
   createdAt          DateTime @default(now())
   

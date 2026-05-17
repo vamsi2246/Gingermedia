@@ -1,9 +1,15 @@
 @import "tailwindcss";
 
 @theme {
+  --color-bg-deep: #030712;
   --color-bg-dark: #09090b;
-  --color-card-bg: rgba(24, 24, 27, 0.6);
-  --color-card-border: rgba(255, 255, 255, 0.08);
+  --color-card-bg: rgba(9, 9, 11, 0.4);
+  --color-card-border: rgba(255, 255, 255, 0.05);
+  
+  --color-cyan-glow: #06b6d4;
+  --color-indigo-glow: #4f46e5;
+  --color-purple-glow: #9333ea;
+  
   --color-accent: #3b82f6;
   --color-success: #10b981;
   --color-danger: #ef4444;
@@ -12,33 +18,46 @@
 
 @layer base {
   body {
-    @apply bg-bg-dark text-slate-100 font-sans antialiased min-h-screen overflow-x-hidden;
+    @apply bg-bg-deep text-slate-100 font-sans antialiased min-h-screen overflow-x-hidden;
   }
 }
 
 @layer components {
   .glass-panel {
-    @apply bg-card-bg backdrop-blur-xl border border-card-border rounded-2xl shadow-xl transition-colors duration-300;
+    @apply bg-card-bg backdrop-blur-2xl border border-card-border rounded-2xl shadow-2xl transition-all duration-500 relative overflow-hidden;
   }
   
+  .glass-panel::before {
+    content: '';
+    @apply absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 transition-opacity duration-500 pointer-events-none;
+  }
+
+  .glass-panel:hover::before {
+    @apply opacity-100;
+  }
+
   .glass-panel:hover {
-    @apply border-white/20;
+    @apply border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.12)];
   }
 
   .premium-table {
-    @apply w-full border-separate border-spacing-y-2;
+    @apply w-full border-separate border-spacing-y-3;
   }
   
   .premium-table th {
-    @apply text-left px-4 pb-2 text-xs uppercase tracking-wider text-slate-400 font-semibold;
+    @apply text-left px-4 pb-2 text-[10px] uppercase tracking-[0.2em] text-slate-500 font-bold;
   }
   
   .premium-table td {
-    @apply bg-black/20 p-4 text-sm transition-colors duration-200 border-y border-transparent;
+    @apply bg-white/[0.02] p-4 text-sm transition-all duration-300 border-y border-transparent;
   }
   
+  .premium-table tr {
+    @apply relative cursor-default;
+  }
+
   .premium-table tr:hover td {
-    @apply bg-white/5 border-white/10;
+    @apply bg-white/[0.04] border-white/5;
   }
   
   .premium-table td:first-child {
@@ -50,30 +69,101 @@
   }
 }
 
-.glow-bg {
-    position: fixed;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.04) 0%, transparent 60%);
-    z-index: -2;
-    pointer-events: none;
-    animation: slow-pan 40s infinite alternate;
-}
+/* =========================================
+   CINEMATIC BACKGROUND
+   ========================================= */
 
-@keyframes slow-pan {
-    0% { transform: translate(0, 0); }
-    100% { transform: translate(5%, 5%); }
-}
-
-.grid-bg {
+.cinematic-bg {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
+    z-index: -10;
+    background: #030712; /* Deep base */
+    overflow: hidden;
+}
+
+/* 1. Subtle Moving Grid */
+.bg-grid {
+    position: absolute;
+    top: -50%; left: -50%; right: -50%; bottom: -50%;
     background-image: 
-        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-    background-size: 40px 40px;
-    z-index: -1;
+        linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+    background-size: 50px 50px;
+    transform: perspective(1000px) rotateX(60deg) scale(2);
+    animation: grid-move 20s linear infinite;
+    mask-image: radial-gradient(ellipse at center, black 10%, transparent 70%);
+}
+
+@keyframes grid-move {
+    0% { transform: perspective(1000px) rotateX(60deg) translateY(0) scale(2); }
+    100% { transform: perspective(1000px) rotateX(60deg) translateY(50px) scale(2); }
+}
+
+/* 2. Gradient Orbs */
+.orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.15;
+    animation: float 20s ease-in-out infinite alternate;
+}
+
+.orb-1 {
+    width: 600px; height: 600px;
+    background: var(--color-indigo-glow);
+    top: -100px; left: -100px;
+    animation-delay: 0s;
+}
+
+.orb-2 {
+    width: 500px; height: 500px;
+    background: var(--color-cyan-glow);
+    bottom: -100px; right: -100px;
+    animation-delay: -5s;
+}
+
+.orb-3 {
+    width: 400px; height: 400px;
+    background: var(--color-purple-glow);
+    top: 40%; left: 60%;
+    animation-delay: -10s;
+}
+
+@keyframes float {
+    0% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(30px, -50px) scale(1.1); }
+    66% { transform: translate(-20px, 20px) scale(0.9); }
+    100% { transform: translate(0, 0) scale(1); }
+}
+
+/* 3. Noise Overlay */
+.bg-noise {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    opacity: 0.03;
     pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+/* 4. Radial Vignette */
+.bg-vignette {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(circle at 50% 50%, transparent 0%, #030712 100%);
+    pointer-events: none;
+}
+
+/* =========================================
+   UTILITIES
+   ========================================= */
+
+.font-future {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.02em;
+}
+
+.text-gradient {
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
 }

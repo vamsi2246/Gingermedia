@@ -28,5 +28,6 @@ router.get('/result/:id', apiController.getResult);
 router.get('/health', apiController.getHealth);
 router.get('/analytics', apiController.getAnalytics);
 router.get('/recent', apiController.getRecent);
+router.delete('/result/:id', apiController.deleteResult);
 
 module.exports = router;

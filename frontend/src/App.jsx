@@ -1,19 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Cpu, Activity, CheckCircle, XCircle, Database, Layers } from 'lucide-react';
+import { Cpu, Activity, CheckCircle, XCircle, Database, Layers, Sparkles, Scan, AlertCircle, AlertTriangle } from 'lucide-react';
 import UploadZone from './components/UploadZone';
 import PipelineVisualizer from './components/PipelineVisualizer';
 import MetricCard from './components/MetricCard';
 import SystemHealth from './components/SystemHealth';
 import HistoryTable from './components/HistoryTable';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
     const [file, setFile] = useState(null);
     const [preview, setPreview] = useState(null);
-    const [stage, setStage] = useState('pending'); // pending, uploaded, queued, worker, ocr, analysis, completed
+    
+    // UI Stages: pending, uploaded, queued, worker, ocr, analysis, duplicate, completed, error
+    const [stage, setStage] = useState('pending'); 
+    
+    // Processing State
+    const [activeJobId, setActiveJobId] = useState(null);
+    const [selectedHistoryId, setSelectedHistoryId] = useState(null);
     const [results, setResults] = useState(null);
+    const [isFetchingResult, setIsFetchingResult] = useState(false);
+    const [uploadError, setUploadError] = useState(null);
+    const [deleteModal, setDeleteModal] = useState({ isOpen: false, id: null });
+
+    // Dashboard Data
     const [analytics, setAnalytics] = useState({ total: 0, completed: 0, failed: 0, avgConfidence: 0 });
     const [history, setHistory] = useState([]);
+    
+    // Layout State
+    const [consoleWidth, setConsoleWidth] = useState(450);
+    const isResizing = useRef(false);
 
     const fetchDashboardData = async () => {
         try {
@@ -24,14 +40,119 @@ function App() {
             setAnalytics(analyticsRes.data.data);
             setHistory(historyRes.data.data);
         } catch (e) {
-            console.error(e);
+            console.error("Dashboard sync error:", e);
         }
     };
 
+    // Initial load and background sync (every 10s so it doesn't overwhelm during active polling)
     useEffect(() => {
         fetchDashboardData();
         const interval = setInterval(fetchDashboardData, 10000);
         return () => clearInterval(interval);
+    }, []);
+
+    // Active Job Polling Logic
+    useEffect(() => {
+        let pollInterval;
+        let mockStageTimeout1, mockStageTimeout2, mockStageTimeout3;
+
+        const pollStatus = async () => {
+            if (!activeJobId) return;
+
+            try {
+                const res = await axios.get(`http://localhost:3000/api/status/${activeJobId}`);
+                const { status } = res.data.data;
+
+                if (status === 'PROCESSING') {
+                    // Start the visual progression if we just transitioned from queued
+                    setStage((currentStage) => {
+                        if (currentStage === 'queued' || currentStage === 'uploaded') {
+                            // Trigger the mock visual progression for the UI
+                            mockStageTimeout1 = setTimeout(() => setStage('ocr'), 1500);
+                            mockStageTimeout2 = setTimeout(() => setStage('analysis'), 3000);
+                            mockStageTimeout3 = setTimeout(() => setStage('duplicate'), 4500);
+                            return 'worker';
+                        }
+                        return currentStage;
+                    });
+                } else if (status === 'COMPLETED') {
+                    // Processing finished! Clear the interval and fetch the result immediately.
+                    clearInterval(pollInterval);
+                    clearTimeout(mockStageTimeout1);
+                    clearTimeout(mockStageTimeout2);
+                    clearTimeout(mockStageTimeout3);
+                    
+                    setStage('completed');
+                    setIsFetchingResult(true);
+                    
+                    try {
+                        const resultRes = await axios.get(`http://localhost:3000/api/result/${activeJobId}`);
+                        const data = resultRes.data.data;
+                        setResults(data);
+                        setPreview(`http://localhost:3000/uploads/${data.uploadInfo.filename}`);
+                        // Force a dashboard update immediately after success
+                        await fetchDashboardData();
+                    } catch (resultErr) {
+                        console.error("Failed to fetch results:", resultErr);
+                        setUploadError("Processing finished, but failed to fetch analysis results.");
+                        setStage('error');
+                    } finally {
+                        setIsFetchingResult(false);
+                        setActiveJobId(null);
+                    }
+                } else if (status === 'FAILED') {
+                    clearInterval(pollInterval);
+                    clearTimeout(mockStageTimeout1);
+                    clearTimeout(mockStageTimeout2);
+                    clearTimeout(mockStageTimeout3);
+                    setUploadError("The worker encountered an error while processing the payload.");
+                    setStage('error');
+                    setActiveJobId(null);
+                }
+            } catch (err) {
+                // We ignore 404s (job might not be written to DB yet) or temporary network blips
+                console.warn("Polling warning:", err);
+            }
+        };
+
+        if (activeJobId) {
+            // Poll every 2 seconds
+            pollInterval = setInterval(pollStatus, 2000);
+            // Also run immediately once
+            pollStatus();
+        }
+
+        return () => {
+            clearInterval(pollInterval);
+            clearTimeout(mockStageTimeout1);
+            clearTimeout(mockStageTimeout2);
+            clearTimeout(mockStageTimeout3);
+        };
+    }, [activeJobId]);
+
+    // Resizing Logic
+    useEffect(() => {
+        const handleMouseMove = (e) => {
+            if (!isResizing.current) return;
+            const newWidth = window.innerWidth - e.clientX - 32;
+            if (newWidth > 350 && newWidth < 900) {
+                setConsoleWidth(newWidth);
+            }
+        };
+        const handleMouseUp = () => {
+            if (isResizing.current) {
+                isResizing.current = false;
+                document.body.style.cursor = 'default';
+                document.body.style.userSelect = 'auto';
+            }
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
     }, []);
 
     const handleUpload = async (selectedFile) => {
@@ -39,6 +160,9 @@ function App() {
         setPreview(URL.createObjectURL(selectedFile));
         setStage('uploaded');
         setResults(null);
+        setUploadError(null);
+        setActiveJobId(null);
+        setSelectedHistoryId(null);
 
         const formData = new FormData();
         formData.append('image', selectedFile);
@@ -46,184 +170,338 @@ function App() {
         try {
             const res = await axios.post('http://localhost:3000/api/upload', formData);
             const { id } = res.data.data;
+            
             setStage('queued');
-            pollStatus(id);
+            setActiveJobId(id); // This triggers the useEffect polling
+            
         } catch (error) {
             console.error('Upload Failed', error);
-            setStage('pending');
-            alert('Upload failed');
+            setUploadError(error.response?.data?.message || 'Failed to upload media payload to ingest server.');
+            setStage('error');
         }
     };
 
-    const pollStatus = (id) => {
-        const interval = setInterval(async () => {
-            try {
-                const res = await axios.get(`http://localhost:3000/api/status/${id}`);
-                const { status } = res.data.data;
+    const resetPipeline = () => {
+        setStage('pending');
+        setResults(null);
+        setFile(null);
+        setPreview(null);
+        setUploadError(null);
+        setActiveJobId(null);
+        setSelectedHistoryId(null);
+    };
 
-                if (status === 'PROCESSING') {
-                    setStage('ocr');
-                    setTimeout(() => setStage('analysis'), 1500); // Simulate stages inside processing
-                } else if (status === 'COMPLETED') {
-                    clearInterval(interval);
-                    setStage('completed');
-                    const resultRes = await axios.get(`http://localhost:3000/api/result/${id}`);
-                    setResults(resultRes.data.data);
-                    fetchDashboardData();
-                } else if (status === 'FAILED') {
-                    clearInterval(interval);
-                    setStage('pending');
-                    alert('Processing Failed');
-                }
-            } catch (e) {
-                // Ignore temporary 404s or errors
-            }
-        }, 1500);
+    const handleHistoryClick = async (id) => {
+        resetPipeline();
+        setSelectedHistoryId(id);
+        setIsFetchingResult(true);
+        try {
+            const resultRes = await axios.get(`http://localhost:3000/api/result/${id}`);
+            const data = resultRes.data.data;
+            setResults(data);
+            setPreview(`http://localhost:3000/uploads/${data.uploadInfo.filename}`);
+            setStage('completed');
+        } catch (err) {
+            console.error("Failed to load historical data", err);
+            setUploadError("Failed to fetch historical analysis data.");
+            setStage('error');
+        } finally {
+            setIsFetchingResult(false);
+        }
+    };
+
+    const handleDelete = async (id) => {
+        if (!id) return;
+        // Optimistic UI update
+        setHistory(prev => prev.filter(h => h.id !== id));
+        if (selectedHistoryId === id) {
+            resetPipeline();
+        }
+        
+        try {
+            await axios.delete(`http://localhost:3000/api/result/${id}`);
+            fetchDashboardData();
+        } catch (err) {
+            console.error("Delete failed", err);
+            // Re-fetch to restore state if deletion failed
+            fetchDashboardData();
+        }
+    };
+
+    const getInterpretedBlur = (score) => {
+        if (!score && score !== 0) return "Unknown";
+        if (score > 70) return "Severe Blur";
+        if (score > 45) return "Moderately Blurry";
+        if (score > 25) return "Slightly Soft";
+        return "Sharp";
     };
 
     return (
         <>
-            <div className="glow-bg" />
-            <div className="grid-bg" />
+            {/* Cinematic Background */}
+            <div className="cinematic-bg">
+                <div className="bg-grid" />
+                <div className="orb orb-1" />
+                <div className="orb orb-2" />
+                <div className="orb orb-3" />
+                <div className="bg-noise" />
+                <div className="bg-vignette" />
+            </div>
             
-            <nav className="glass-panel rounded-none border-t-0 border-x-0 h-16 sticky top-0 z-50 flex items-center justify-between px-8">
-                <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-accent flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.5)]">
-                        <Cpu className="w-4 h-4 text-white" />
+            {/* Top: Premium Navbar */}
+            <nav className="glass-panel rounded-none border-t-0 border-x-0 h-[72px] sticky top-0 z-50 flex items-center justify-between px-8 bg-black/40 backdrop-blur-3xl">
+                <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-500 flex items-center justify-center shadow-[0_0_20px_rgba(79,70,229,0.4)] relative">
+                        <div className="absolute inset-0 rounded-xl bg-white/20 blur-sm" />
+                        <Sparkles className="w-5 h-5 text-white relative z-10" />
                     </div>
                     <div>
-                        <h1 className="text-sm font-bold tracking-tight">Media<span className="text-accent">Intelligence</span></h1>
-                        <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold leading-none">AI Engineering Platform</p>
+                        <h1 className="text-lg font-bold font-future tracking-tight text-white">Media<span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-400">Intelligence</span></h1>
+                        <p className="text-[10px] text-slate-400 uppercase tracking-[0.2em] font-semibold leading-none mt-0.5">AI Media Analyzer</p>
                     </div>
                 </div>
                 <SystemHealth />
             </nav>
 
-            <main className="max-w-[1600px] mx-auto p-8 flex flex-col gap-8">
+            <main className="max-w-[1800px] mx-auto p-8 flex flex-col xl:flex-row gap-8" style={{ '--console-width': `${consoleWidth}px` }}>
                 
-                {/* Analytics Grid */}
-                <div className="grid grid-cols-5 gap-6">
-                    <div className="glass-panel p-5 transition-transform hover:-translate-y-1">
-                        <div className="flex items-center gap-2 mb-3">
-                            <Layers className="w-4 h-4 text-slate-400" />
-                            <span className="text-xs text-slate-400 font-semibold uppercase">Total Uploads</span>
+                {/* Left/Middle Column */}
+                <div className="flex-1 flex flex-col gap-8 min-w-0">
+                    <ErrorBoundary>
+                        {/* Analytics Row */}
+                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                            <div className="glass-panel p-5 group hover:-translate-y-1">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Layers className="w-4 h-4 text-slate-400 group-hover:text-cyan-400 transition-colors" />
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Volume</span>
+                                </div>
+                                <span className="text-3xl font-bold font-future tracking-tight">{analytics.total}</span>
+                            </div>
+                            <div className="glass-panel p-5 group hover:-translate-y-1 relative overflow-hidden">
+                                <div className="absolute inset-0 bg-success/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                <div className="flex items-center gap-2 mb-4 relative z-10">
+                                    <CheckCircle className="w-4 h-4 text-success" />
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Completed</span>
+                                </div>
+                                <span className="text-3xl font-bold font-future tracking-tight text-success relative z-10">{analytics.completed}</span>
+                            </div>
+                            <div className="glass-panel p-5 group hover:-translate-y-1 relative overflow-hidden">
+                                <div className="absolute inset-0 bg-danger/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                <div className="flex items-center gap-2 mb-4 relative z-10">
+                                    <XCircle className="w-4 h-4 text-danger" />
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Failed</span>
+                                </div>
+                                <span className="text-3xl font-bold font-future tracking-tight text-danger relative z-10">{analytics.failed}</span>
+                            </div>
+                            <div className="glass-panel p-5 group hover:-translate-y-1">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Activity className="w-4 h-4 text-accent group-hover:animate-pulse" />
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Success Rate</span>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <span className="text-3xl font-bold font-future tracking-tight text-accent">
+                                        {analytics.total > 0 ? Math.round((analytics.completed / analytics.total) * 100) : 0}%
+                                    </span>
+                                    <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                                        <div className="h-full bg-accent rounded-full transition-all duration-1000" style={{ width: `${analytics.total > 0 ? (analytics.completed / analytics.total) * 100 : 0}%` }} />
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="glass-panel p-5 group hover:-translate-y-1">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Database className="w-4 h-4 text-indigo-400" />
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Avg Confidence</span>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <span className="text-3xl font-bold font-future tracking-tight text-indigo-400">
+                                        {Math.round(analytics.avgConfidence * 100)}%
+                                    </span>
+                                    <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                                        <div className="h-full bg-indigo-500 rounded-full transition-all duration-1000" style={{ width: `${Math.round(analytics.avgConfidence * 100)}%` }} />
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <span className="text-3xl font-bold font-mono">{analytics.total}</span>
-                    </div>
-                    <div className="glass-panel p-5 transition-transform hover:-translate-y-1">
-                        <div className="flex items-center gap-2 mb-3">
-                            <CheckCircle className="w-4 h-4 text-success" />
-                            <span className="text-xs text-slate-400 font-semibold uppercase">Completed Jobs</span>
-                        </div>
-                        <span className="text-3xl font-bold font-mono text-success">{analytics.completed}</span>
-                    </div>
-                    <div className="glass-panel p-5 transition-transform hover:-translate-y-1">
-                        <div className="flex items-center gap-2 mb-3">
-                            <XCircle className="w-4 h-4 text-danger" />
-                            <span className="text-xs text-slate-400 font-semibold uppercase">Failed Jobs</span>
-                        </div>
-                        <span className="text-3xl font-bold font-mono text-danger">{analytics.failed}</span>
-                    </div>
-                    <div className="glass-panel p-5 transition-transform hover:-translate-y-1">
-                        <div className="flex items-center gap-2 mb-3">
-                            <Activity className="w-4 h-4 text-accent" />
-                            <span className="text-xs text-slate-400 font-semibold uppercase">Success Rate</span>
-                        </div>
-                        <span className="text-3xl font-bold font-mono text-accent">
-                            {analytics.total > 0 ? Math.round((analytics.completed / analytics.total) * 100) : 0}%
-                        </span>
-                    </div>
-                    <div className="glass-panel p-5 transition-transform hover:-translate-y-1">
-                        <div className="flex items-center gap-2 mb-3">
-                            <Database className="w-4 h-4 text-warning" />
-                            <span className="text-xs text-slate-400 font-semibold uppercase">Avg Confidence</span>
-                        </div>
-                        <span className="text-3xl font-bold font-mono text-warning">
-                            {Math.round(analytics.avgConfidence * 100)}%
-                        </span>
-                    </div>
-                </div>
+                    </ErrorBoundary>
 
-                <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-8">
-                    {/* Left Column */}
-                    <div className="flex flex-col gap-8">
-                        
-                        {/* Live Pipeline Control */}
-                        <div className="glass-panel p-6">
-                            <div className="flex items-center justify-between mb-6">
-                                <h2 className="text-lg font-semibold flex items-center gap-2">
-                                    <Activity className="w-5 h-5 text-accent" />
-                                    Live Processing Pipeline
-                                </h2>
-                                <span className="px-3 py-1 rounded-full border border-slate-600 text-xs font-semibold text-slate-300">
-                                    {stage === 'pending' ? 'Ready' : 'Processing...'}
-                                </span>
+                    <ErrorBoundary>
+                        {/* Pipeline & Upload */}
+                        <div className="glass-panel p-8">
+                            <div className="flex items-center justify-between mb-8 pb-4 border-b border-card-border/50">
+                                <div className="flex flex-col gap-1">
+                                    <h2 className="text-xl font-bold font-future flex items-center gap-2 text-white">
+                                        <Activity className="w-5 h-5 text-cyan-400" />
+                                        Live Processing Pipeline
+                                    </h2>
+                                    <p className="text-xs text-slate-400">Asynchronous media ingestion and AI analysis</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className={`w-2 h-2 rounded-full ${(stage === 'pending' || stage === 'error') ? 'bg-slate-500' : 'bg-cyan-400 animate-pulse shadow-[0_0_10px_rgba(6,182,212,0.8)]'}`} />
+                                    <span className="text-xs font-mono font-bold tracking-wider text-slate-300 uppercase">
+                                        {stage === 'error' ? 'SYSTEM_HALTED' : (stage === 'pending' ? 'IDLE' : 'ACTIVE_JOB')}
+                                    </span>
+                                </div>
                             </div>
 
-                            {stage === 'pending' ? (
-                                <UploadZone onUpload={handleUpload} />
-                            ) : (
-                                <div className="bg-black/30 border border-card-border rounded-xl p-8 mb-6">
+                            {stage === 'pending' && <UploadZone onUpload={handleUpload} />}
+                            
+                            {stage === 'error' && (
+                                <div className="bg-danger/10 border border-danger/20 rounded-2xl p-8 flex flex-col items-center justify-center text-center animate-in zoom-in-95 duration-500">
+                                    <AlertCircle className="w-12 h-12 text-danger mb-4 shadow-danger drop-shadow-lg" />
+                                    <h3 className="text-lg font-bold font-future text-white mb-2">Ingestion Failed</h3>
+                                    <p className="text-sm text-danger/80 max-w-md mb-6">{uploadError}</p>
+                                    <button onClick={resetPipeline} className="px-6 py-2.5 bg-danger/20 hover:bg-danger/30 border border-danger/30 rounded-lg text-sm font-bold text-white transition-colors shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+                                        Acknowledge & Reset
+                                    </button>
+                                </div>
+                            )}
+
+                            {(stage !== 'pending' && stage !== 'error') && (
+                                <div className="bg-black/40 border border-white/5 rounded-2xl p-10 mb-2 relative overflow-hidden transition-all duration-500">
+                                    <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 to-indigo-500/5" />
                                     <PipelineVisualizer currentStage={stage} />
+                                    
+                                    {isFetchingResult && (
+                                        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 text-[10px] font-mono font-bold uppercase tracking-widest text-cyan-400 animate-pulse">
+                                            <Sparkles className="w-3 h-3" /> Fetching final analysis telemetry...
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
+                    </ErrorBoundary>
 
-                        {/* Analysis Results */}
-                        {results && (
-                            <div className="glass-panel p-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                                <div className="flex items-center justify-between mb-6 pb-4 border-b border-card-border">
-                                    <h2 className="text-lg font-semibold flex items-center gap-2">
-                                        <Database className="w-5 h-5 text-accent" />
-                                        Analysis Intelligence
-                                    </h2>
-                                    <div className="flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-1.5 rounded-full">
-                                        <span className="text-xs text-slate-400 uppercase font-semibold">Verdict:</span>
-                                        <span className={`text-sm font-bold font-mono ${
-                                            results.overallVerdict === 'ACCEPTABLE' ? 'text-success' : 
-                                            results.overallVerdict === 'SUSPICIOUS' ? 'text-warning' : 'text-danger'
+                    <ErrorBoundary>
+                        {/* Analysis Results (Bottom) */}
+                        {results ? (
+                            <div className="glass-panel p-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
+                                <div className="flex items-center justify-between mb-8 pb-4 border-b border-card-border/50">
+                                    <div className="flex flex-col gap-1">
+                                        <h2 className="text-xl font-bold font-future flex items-center gap-2 text-white">
+                                            <Sparkles className="w-5 h-5 text-indigo-400" />
+                                            Analysis Intelligence
+                                        </h2>
+                                        <p className="text-xs text-slate-400">Detailed extraction and quality metrics</p>
+                                    </div>
+                                    <div className="flex items-center gap-3 bg-black/50 border border-white/10 px-5 py-2 rounded-full shadow-inner">
+                                        <span className="text-xs text-slate-400 uppercase tracking-widest font-bold">Verdict:</span>
+                                        <span className={`text-sm font-bold font-mono tracking-wide ${
+                                            results.overallVerdict === 'GOOD_QUALITY' ? 'text-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]' :
+                                            results.overallVerdict === 'ACCEPTABLE' ? 'text-success drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 
+                                            results.overallVerdict === 'SUSPICIOUS' ? 'text-warning drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]' : 'text-danger drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]'
                                         }`}>
                                             {results.overallVerdict}
                                         </span>
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-[280px_1fr] gap-6">
+                                <div className="grid grid-cols-[300px_1fr] gap-8">
                                     <div className="flex flex-col gap-4">
-                                        <div className="w-full aspect-[3/4] rounded-xl overflow-hidden border border-card-border bg-black relative">
-                                            <img src={preview} className="w-full h-full object-cover opacity-80" alt="Preview" />
-                                            <div className="absolute top-4 right-4 bg-success/90 backdrop-blur px-3 py-1 rounded-full flex items-center gap-1.5 text-xs font-bold shadow-lg text-white">
-                                                <CheckCircle className="w-3.5 h-3.5" /> Analyzed
+                                        <div className="w-full aspect-[3/4] rounded-2xl overflow-hidden border border-white/10 bg-black relative group shadow-2xl">
+                                            <img src={preview} className="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition-opacity duration-500" alt="Preview" />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
+                                            <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end">
+                                                <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2 text-xs font-mono text-slate-300">
+                                                    <Scan className="w-3.5 h-3.5" /> ID: {results.uploadInfo?.id?.substring(0,8) || results.id?.substring(0,8)}
+                                                </div>
                                             </div>
                                         </div>
-                                        <button onClick={() => { setStage('pending'); setResults(null); }} className="w-full py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm font-semibold transition-colors">
-                                            New Analysis
+                                        <button onClick={resetPipeline} className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-bold tracking-wide transition-all hover:shadow-[0_0_15px_rgba(255,255,255,0.05)]">
+                                            INITIALIZE NEW ANALYSIS
                                         </button>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-4 content-start">
-                                        <MetricCard title="Blur Score" icon={Activity} status={results.blurScore > 100 ? 'ok' : 'err'} value={results.blurScore.toFixed(2)} progress={results.blurScore / 5} />
-                                        <MetricCard title="Brightness" icon={Activity} status={results.brightnessCategory === 'Normal' ? 'ok' : 'warn'} value={Math.round(results.brightnessValue)} subtext={results.brightnessCategory} progress={results.brightnessValue / 2.5} />
-                                        <MetricCard title="Extracted OCR" icon={Scan} colSpan={true} value={results.ocrText || 'No text detected'} subtext={`CONF: ${(results.ocrConfidence * 100).toFixed(0)}%`} />
-                                        <MetricCard title="Duplicates" icon={Layers} status={results.isDuplicate ? 'warn' : 'ok'} value={results.isDuplicate ? 'Match Found' : 'Unique'} />
-                                        <MetricCard title="Pattern" icon={CheckCircle} status={results.patternValid ? 'ok' : 'err'} value={results.patternValid ? 'Verified' : 'Invalid'} />
+                                    <div className="grid grid-cols-2 gap-5 content-start">
+                                        <MetricCard 
+                                            title="Blur Level" 
+                                            icon={Activity} 
+                                            status={results.blurScore <= 45 ? 'ok' : results.blurScore <= 70 ? 'warn' : 'err'} 
+                                            value={getInterpretedBlur(results.blurScore)} 
+                                            subtext={`RAW SCORE: ${results.blurScore?.toFixed(2) || '0.00'}`}
+                                            progress={results.blurScore / 10} 
+                                        />
+                                        <MetricCard 
+                                            title="Brightness" 
+                                            icon={Activity} 
+                                            status={results.brightnessCategory === 'Normal Lighting' ? 'ok' : 'warn'} 
+                                            value={results.brightnessCategory || 'Unknown'} 
+                                            subtext={`LUMINANCE: ${Math.round(results.brightnessValue || 0)}`} 
+                                            progress={(results.brightnessValue || 0) / 2.5} 
+                                        />
+                                        <MetricCard 
+                                            title="OCR Extraction" 
+                                            icon={Scan} 
+                                            colSpan={true} 
+                                            value={results.ocrConfidence < 0.3 ? 'Image does not contain clear extractable text.' : (results.ocrText || 'Image does not contain clear extractable text.')} 
+                                            subtext={`CONFIDENCE: ${((results.ocrConfidence || 0) * 100).toFixed(0)}%`} 
+                                            isCode={results.ocrConfidence >= 0.3 && results.ocrText} 
+                                        />
+                                        <MetricCard 
+                                            title="Similarity Hash" 
+                                            icon={Layers} 
+                                            status={results.isDuplicate ? 'warn' : 'ok'} 
+                                            value={results.isDuplicate ? 'Possible duplicate image detected' : 'Unique image signature created'} 
+                                            isCode={false} 
+                                        />
+                                        <MetricCard 
+                                            title="Pattern Check" 
+                                            icon={CheckCircle} 
+                                            status={results.patternValid ? 'ok' : 'err'} 
+                                            value={results.patternValid ? 'Structured text detected' : 'No readable structured text found'} 
+                                            isCode={false} 
+                                        />
                                     </div>
                                 </div>
                             </div>
-                        )}
-                    </div>
+                        ) : (stage === 'pending' || stage === 'error') && !isFetchingResult ? (
+                            <div className="glass-panel p-8 flex flex-col items-center justify-center text-center min-h-[300px]">
+                                <Layers className="w-12 h-12 text-slate-600 mb-4" />
+                                <h3 className="text-lg font-bold font-future text-white mb-2">Analysis History Explorer</h3>
+                                <p className="text-slate-400 text-sm max-w-md">
+                                    Initialize a new ingestion via the dropzone above, or select a processed image from the Analysis History to view detailed telemetry.
+                                </p>
+                            </div>
+                        ) : null}
+                    </ErrorBoundary>
+                </div>
 
-                    {/* Right Column: History */}
-                    <div className="flex flex-col gap-8">
-                        <div className="glass-panel p-6 h-full">
-                            <h2 className="text-lg font-semibold flex items-center gap-2 mb-6">
-                                <Activity className="w-5 h-5 text-accent" />
-                                Activity Log
-                            </h2>
-                            <HistoryTable history={history} />
+                {/* Resize Handle */}
+                <div 
+                    className="hidden xl:flex w-6 -mx-3 cursor-col-resize z-20 flex-col justify-center items-center group"
+                    onMouseDown={(e) => {
+                        e.preventDefault();
+                        isResizing.current = true;
+                        document.body.style.cursor = 'col-resize';
+                        document.body.style.userSelect = 'none';
+                    }}
+                >
+                    <div className="w-1 h-12 rounded-full bg-white/5 group-hover:bg-cyan-400 transition-colors shadow-[0_0_10px_transparent] group-hover:shadow-cyan-400/50" />
+                </div>
+
+                {/* Right Column: Console / History */}
+                <ErrorBoundary>
+                    <div className="w-full xl:w-[var(--console-width)] flex flex-col gap-8 shrink-0 min-w-0">
+                        <div className="glass-panel flex flex-col h-[calc(100vh-140px)] sticky top-[100px] overflow-hidden">
+                            <div className="p-6 border-b border-card-border/50 bg-black/20 shrink-0">
+                                <h2 className="text-lg font-bold font-future flex items-center gap-2 text-white">
+                                    <Activity className="w-4 h-4 text-indigo-400" />
+                                    Analysis History
+                                </h2>
+                                <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Real-time system events</p>
+                            </div>
+                            <div className="flex-1 overflow-hidden relative">
+                                <div className="absolute inset-0 p-4">
+                                    <HistoryTable 
+                                        history={history} 
+                                        onItemClick={handleHistoryClick} 
+                                        selectedId={selectedHistoryId} 
+                                        onDelete={handleDelete}
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
+                </ErrorBoundary>
             </main>
         </>
     );

@@ -62,7 +62,18 @@ exports.getResult = async (req, res) => {
         if (!upload.analysisResult) {
             return res.status(404).json({ status: 'error', message: 'Analysis not found or still processing' });
         }
-        res.json({ status: 'success', data: upload.analysisResult });
+        res.json({ 
+            status: 'success', 
+            data: {
+                ...upload.analysisResult,
+                uploadInfo: {
+                    id: upload.id,
+                    filename: upload.filename,
+                    originalName: upload.originalName,
+                    createdAt: upload.createdAt
+                }
+            } 
+        });
     } catch (error) {
         res.status(500).json({ status: 'error', message: 'Internal server error' });
     }
@@ -148,5 +159,32 @@ exports.getRecent = async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ status: 'error' });
+    }
+};
+
+exports.deleteResult = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const upload = await prisma.upload.findUnique({ where: { id } });
+        
+        if (!upload) {
+            return res.status(404).json({ status: 'error', message: 'Not found' });
+        }
+
+        // Delete from DB (cascades to AnalysisResult)
+        await prisma.upload.delete({ where: { id } });
+        
+        // Delete physical file
+        if (upload.filename) {
+            const filePath = path.join(process.cwd(), 'uploads', upload.filename);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
+        }
+
+        res.json({ status: 'success', message: 'Record deleted' });
+    } catch (error) {
+        console.error('Delete Error:', error);
+        res.status(500).json({ status: 'error', message: 'Internal server error' });
     }
 };

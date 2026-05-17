@@ -1,74 +1,96 @@
-import React from 'react';
-import { Inbox } from 'lucide-react';
+import { Terminal, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 
-export default function HistoryTable({ history }) {
+export default function HistoryTable({ history, onItemClick, selectedId, onDelete }) {
     if (!history || history.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center py-16 px-4 bg-black/10 border border-dashed border-card-border rounded-xl text-center">
-                <Inbox className="w-12 h-12 text-slate-600 mb-4 opacity-50" />
-                <h4 className="text-slate-300 font-medium mb-1">No Processing History</h4>
-                <p className="text-slate-500 text-sm">Upload an image to start the pipeline.</p>
+            <div className="flex flex-col items-center justify-center py-20 px-4 h-full text-center">
+                <Terminal className="w-12 h-12 text-slate-700 mb-4" />
+                <h4 className="text-slate-400 font-bold font-future mb-1">Awaiting Telemetry</h4>
+                <p className="text-slate-600 text-xs font-mono uppercase tracking-widest">System idle. Ready for ingestion.</p>
             </div>
         );
     }
 
     const getStatusStyle = (status) => {
         switch(status) {
-            case 'COMPLETED': return 'bg-success/10 text-success border-success/20';
-            case 'FAILED': return 'bg-danger/10 text-danger border-danger/20';
-            default: return 'bg-accent/10 text-accent border-accent/20';
+            case 'COMPLETED': return 'text-success bg-success/10 border-success/20';
+            case 'FAILED': return 'text-danger bg-danger/10 border-danger/20';
+            default: return 'text-cyan-400 bg-cyan-400/10 border-cyan-400/20 shadow-[0_0_10px_rgba(6,182,212,0.3)] animate-pulse';
         }
     };
 
-    const getVerdictStyle = (verdict) => {
+    const getVerdictDot = (verdict) => {
         switch(verdict) {
-            case 'ACCEPTABLE': return 'text-success';
-            case 'SUSPICIOUS': return 'text-warning';
-            case 'POOR_QUALITY': return 'text-danger';
-            default: return 'text-slate-400';
+            case 'GOOD_QUALITY': return 'bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.8)]';
+            case 'ACCEPTABLE': return 'bg-success shadow-[0_0_8px_rgba(16,185,129,0.8)]';
+            case 'SUSPICIOUS': return 'bg-warning shadow-[0_0_8px_rgba(245,158,11,0.8)]';
+            case 'POOR_QUALITY': return 'bg-danger shadow-[0_0_8px_rgba(239,68,68,0.8)]';
+            default: return 'bg-slate-600';
         }
     };
 
     return (
-        <div className="overflow-x-auto">
-            <table className="premium-table">
+        <div className="w-full overflow-x-auto custom-scrollbar">
+            <table className="premium-table min-w-[600px]">
                 <thead>
                     <tr>
-                        <th>File</th>
-                        <th>Status</th>
-                        <th>Verdict</th>
+                        <th>Image</th>
                         <th>Time</th>
+                        <th>Status</th>
+                        <th>Result</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {history.map((item) => (
-                        <tr key={item.id}>
-                            <td>
+                    {history.map((item) => {
+                        const isSelected = selectedId === item.id;
+                        return (
+                        <tr 
+                            key={item.id} 
+                            onClick={() => { if(item.status === 'COMPLETED' && onItemClick) onItemClick(item.id); }}
+                            className={`${item.status === 'COMPLETED' ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} 
+                                ${isSelected ? 'bg-indigo-500/10 border-indigo-500/30' : ''} group`}
+                        >
+                            <td className={isSelected ? 'bg-indigo-500/10' : ''}>
                                 <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded border border-card-border overflow-hidden bg-black">
-                                        <img src={`http://localhost:3000${item.filePath}`} alt="thumb" className="w-full h-full object-cover" />
+                                    <div className={`w-8 h-8 rounded-lg border overflow-hidden shrink-0 transition-colors 
+                                        ${isSelected ? 'border-indigo-400 shadow-[0_0_10px_rgba(79,70,229,0.5)]' : 'border-white/10 bg-black'}`}>
+                                        <img src={`http://localhost:3000${item.filePath}`} alt="thumb" className="w-full h-full object-cover opacity-80" />
                                     </div>
-                                    <span className="font-mono text-xs max-w-[120px] truncate" title={item.originalName}>
+                                    <span className={`font-mono text-[11px] font-bold truncate transition-colors max-w-[150px] ${isSelected ? 'text-indigo-300' : 'text-slate-300'}`} title={item.originalName}>
                                         {item.originalName}
                                     </span>
                                 </div>
                             </td>
-                            <td>
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase border ${getStatusStyle(item.status)}`}>
+                            <td className={isSelected ? 'bg-indigo-500/10' : ''}>
+                                <span className="font-mono text-[10px] text-slate-500 whitespace-nowrap">
+                                    {format(new Date(item.createdAt), 'HH:mm:ss.SSS')}
+                                </span>
+                            </td>
+                            <td className={isSelected ? 'bg-indigo-500/10' : ''}>
+                                <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider border whitespace-nowrap ${getStatusStyle(item.status)}`}>
                                     {item.status}
                                 </span>
                             </td>
-                            <td>
-                                <span className={`font-mono font-bold text-xs ${getVerdictStyle(item.analysisResult?.overallVerdict)}`}>
-                                    {item.analysisResult?.overallVerdict || '-'}
-                                </span>
-                            </td>
-                            <td className="font-mono text-xs text-slate-400">
-                                {format(new Date(item.createdAt), 'HH:mm')}
+                            <td className={isSelected ? 'bg-indigo-500/10' : ''}>
+                                <div className="flex items-center justify-between gap-4">
+                                    <div className="flex items-center gap-2 whitespace-nowrap">
+                                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${getVerdictDot(item.analysisResult?.overallVerdict)}`} />
+                                        <span className={`font-mono text-[10px] font-bold ${isSelected ? 'text-indigo-200' : 'text-slate-400'}`}>
+                                            {item.analysisResult?.overallVerdict || 'PENDING'}
+                                        </span>
+                                    </div>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); if(onDelete) onDelete(item.id); }}
+                                        className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-danger/20 rounded-md transition-all text-slate-500 hover:text-danger shrink-0"
+                                        title="Delete Record"
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
                             </td>
                         </tr>
-                    ))}
+                    )})}
                 </tbody>
             </table>
         </div>

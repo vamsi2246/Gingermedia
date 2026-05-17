@@ -2,6 +2,8 @@ const { Worker } = require('bullmq');
 const connection = require('../config/redis');
 const prisma = require('../config/db');
 const imageAnalysis = require('../services/imageAnalysis');
+const fs = require('fs');
+const crypto = require('crypto');
 
 const worker = new Worker('image-processing', async job => {
     const { uploadId, filePath } = job.data;
@@ -12,8 +14,43 @@ const worker = new Worker('image-processing', async job => {
             data: { status: 'PROCESSING' }
         });
         
-        // Run analysis
-        const results = await imageAnalysis.processImage(filePath);
+        // 1. Calculate image hash
+        const imageBuffer = fs.readFileSync(filePath);
+        const hash = crypto.createHash('sha256').update(imageBuffer).digest('hex');
+
+        // 2. Check for duplicate in DB
+        const existing = await prisma.analysisResult.findFirst({
+            where: { imageHash: hash }
+        });
+
+        let results;
+
+        if (existing) {
+            console.log(`[Worker] Duplicate detected for job ${job.id}`);
+            // Clone previous results, flag as duplicate, maybe update verdict
+            // User requested: IF blurry, low confidence, duplicate THEN SUSPICIOUS
+            let newVerdict = existing.overallVerdict;
+            const isBlurry = existing.blurScore > 40;
+            const isLowConfidence = existing.ocrConfidence < 0.6;
+            
+            if (isBlurry && isLowConfidence) {
+                newVerdict = 'SUSPICIOUS';
+            }
+
+            results = {
+                blurScore: existing.blurScore,
+                brightnessValue: existing.brightnessValue,
+                brightnessCategory: existing.brightnessCategory,
+                ocrText: existing.ocrText,
+                ocrConfidence: existing.ocrConfidence,
+                isDuplicate: true,
+                patternValid: existing.patternValid,
+                overallVerdict: newVerdict
+            };
+        } else {
+            console.log(`[Worker] Running full analysis for job ${job.id}`);
+            results = await imageAnalysis.processImage(filePath);
+        }
         
         // Save results
         await prisma.analysisResult.create({
@@ -26,7 +63,8 @@ const worker = new Worker('image-processing', async job => {
                 ocrConfidence: results.ocrConfidence,
                 isDuplicate: results.isDuplicate,
                 patternValid: results.patternValid,
-                overallVerdict: results.overallVerdict
+                overallVerdict: results.overallVerdict,
+                imageHash: hash
             }
         });
 
