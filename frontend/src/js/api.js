@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:3000/api';
+const BASE_URL = '/api';
 
 export const uploadImage = async (file) => {
     const formData = new FormData();
@@ -14,5 +14,20 @@ export const getStatus = async (id) => {
 
 export const getResult = async (id) => {
     const res = await fetch(`${BASE_URL}/result/${id}`);
+    return res.json();
+};
+
+export const getAnalytics = async () => {
+    const res = await fetch(`${BASE_URL}/result/analytics`);
+    return res.json();
+};
+
+export const getRecent = async () => {
+    const res = await fetch(`${BASE_URL}/result/recent`);
+    return res.json();
+};
+
+export const getHealth = async () => {
+    const res = await fetch(`/health`);
     return res.json();
 };

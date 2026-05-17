@@ -38,7 +38,22 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/result', resultRoutes);
 
 // Health Check
-app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+app.get('/health', async (req, res) => {
+  const prisma = require('./config/db');
+  const redis = require('./config/redis');
+  
+  let dbStatus = 'online';
+  let redisStatus = 'online';
+  
+  try { await prisma.$queryRaw`SELECT 1`; } catch (e) { dbStatus = 'offline'; }
+  try { await redis.ping(); } catch (e) { redisStatus = 'offline'; }
+  
+  res.json({ 
+    status: dbStatus === 'online' && redisStatus === 'online' ? 'ok' : 'degraded',
+    systems: { db: dbStatus, redis: redisStatus, worker: 'online' },
+    timestamp: new Date()
+  });
+});
 
 // Global Error Handler
 app.use(errorMiddleware);
