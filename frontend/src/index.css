@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-dark: #09090b;
+  --color-card-bg: rgba(24, 24, 27, 0.6);
+  --color-card-border: rgba(255, 255, 255, 0.08);
+  --color-accent: #3b82f6;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+}
+
+@layer base {
+  body {
+    @apply bg-bg-dark text-slate-100 font-sans antialiased min-h-screen overflow-x-hidden;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-card-bg backdrop-blur-xl border border-card-border rounded-2xl shadow-xl transition-colors duration-300;
+  }
+  
+  .glass-panel:hover {
+    @apply border-white/20;
+  }
+
+  .premium-table {
+    @apply w-full border-separate border-spacing-y-2;
+  }
+  
+  .premium-table th {
+    @apply text-left px-4 pb-2 text-xs uppercase tracking-wider text-slate-400 font-semibold;
+  }
+  
+  .premium-table td {
+    @apply bg-black/20 p-4 text-sm transition-colors duration-200 border-y border-transparent;
+  }
+  
+  .premium-table tr:hover td {
+    @apply bg-white/5 border-white/10;
+  }
+  
+  .premium-table td:first-child {
+    @apply rounded-l-xl border-l border-transparent;
+  }
+  
+  .premium-table td:last-child {
+    @apply rounded-r-xl border-r border-transparent;
+  }
+}
+
+.glow-bg {
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.04) 0%, transparent 60%);
+    z-index: -2;
+    pointer-events: none;
+    animation: slow-pan 40s infinite alternate;
+}
+
+@keyframes slow-pan {
+    0% { transform: translate(0, 0); }
+    100% { transform: translate(5%, 5%); }
+}
+
+.grid-bg {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-image: 
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+    z-index: -1;
+    pointer-events: none;
+}

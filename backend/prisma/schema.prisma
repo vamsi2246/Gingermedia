@@ -1,68 +1,60 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "mysql"
-  url      = env("DATABASE_URL")
 }
 
 model Upload {
-  id             String   @id @default(uuid())
-  originalName   String   @map("original_name")
-  fileName       String   @map("file_name")
-  filePath       String   @map("file_path")
-  mimeType       String   @map("mime_type")
-  fileSize       Int      @map("file_size")
-  status         Status   @default(PENDING)
-  failureReason  String?  @map("failure_reason") @db.Text
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
+  id             String         @id @default(uuid())
+  originalName   String
+  filename       String
+  mimeType       String
+  size           Int
+  status         UploadStatus   @default(PENDING)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  
   analysisResult AnalysisResult?
-  imageHash      ImageHash?
-
-  @@map("uploads")
 }
 
 model AnalysisResult {
   id                 String   @id @default(uuid())
-  uploadId           String   @unique @map("upload_id")
-  blurScore          Float    @map("blur_score")
-  brightnessValue    Float    @map("brightness_value")
-  brightnessCategory String   @map("brightness_category")
-  ocrText            String?  @map("ocr_text") @db.Text
-  ocrConfidence      Float?   @map("ocr_confidence")
-  patternValid       Boolean  @default(false) @map("pattern_valid")
-  isDuplicate        Boolean  @default(false) @map("is_duplicate")
-  confidenceScore    Float    @map("confidence_score")
-  overallVerdict     Verdict  @default(POOR_QUALITY) @map("overall_verdict")
-  processedAt        DateTime @default(now()) @map("processed_at")
-
-  upload Upload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
-
-  @@map("analysis_results")
+  uploadId           String   @unique
+  upload             Upload   @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  
+  blurScore          Float?
+  brightnessValue    Float?
+  brightnessCategory String?
+  ocrText            String?  @db.Text
+  ocrConfidence      Float?
+  isDuplicate        Boolean  @default(false)
+  patternValid       Boolean  @default(false)
+  overallVerdict     String?
+  
+  createdAt          DateTime @default(now())
+  
+  failureReason      FailureReason?
 }
 
-model ImageHash {
-  id       String @id @default(uuid())
-  uploadId String @unique @map("upload_id")
-  pHash    String @map("p_hash") @db.VarChar(64)
-
-  upload Upload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
-
-  @@map("image_hashes")
+model FailureReason {
+  id               String         @id @default(uuid())
+  analysisResultId String         @unique
+  analysisResult   AnalysisResult @relation(fields: [analysisResultId], references: [id], onDelete: Cascade)
+  
+  message          String         @db.Text
+  step             String?
+  createdAt        DateTime       @default(now())
 }
 
-enum Status {
+enum UploadStatus {
   PENDING
+  QUEUED
   PROCESSING
   COMPLETED
   FAILED
-}
-
-enum Verdict {
-  ACCEPTABLE
-  SUSPICIOUS
-  POOR_QUALITY
 }

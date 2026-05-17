@@ -1,31 +1,16 @@
-# Intelligent Media Processing Dashboard
+# React + Vite
 
-A high-performance, modularized Vanilla JavaScript frontend for the Media Processing Pipeline. This dashboard provides a professional interface for uploading media and monitoring asynchronous processing results in real-time.
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-## 🎨 Design Philosophy
-- **Minimalist Engineering Aesthetic**: Clean lines, professional color palette, and high information density without clutter.
-- **Responsive Layout**: Fully functional across desktop, tablet, and mobile devices.
-- **Zero Framework Dependency**: Built with pure Vanilla JS to demonstrate core web API mastery (Fetch, FileReader, Drag & Drop).
+Currently, two official plugins are available:
 
-## 📂 Modular Architecture
-The frontend is decoupled into distinct modules for maximum maintainability:
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
 
-- **`js/api.js`**: Centralized API communication layer. Handles all `fetch` requests to the backend.
-- **`js/upload.js`**: Logic for managing the file upload lifecycle and state transitions.
-- **`js/status.js`**: Implementation of the polling strategy for real-time status updates from the async pipeline.
-- **`js/ui.js`**: Main DOM orchestration layer that connects the logic to the visual components.
+## React Compiler
 
-## 🚀 Key Features
-- **Smart Drag & Drop**: Visual feedback during drag events and immediate image preview.
-- **Async Polling**: Long-polling mechanism that monitors the job state (`PENDING` -> `PROCESSING` -> `COMPLETED`).
-- **Rich Results Visualization**: Detailed breakdown of blur scores, OCR confidence, and duplicate detection.
-- **Operational Error Handling**: Clear visual feedback for network failures or processing errors.
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-## 🛠️ Setup & Usage
-1. Ensure the Backend is running on `http://localhost:3000`.
-2. Open `src/index.html` in any modern browser.
-3. Drag an image into the upload zone or click to browse.
-4. Click **"Start Analysis"** and watch the real-time processing updates.
+## Expanding the ESLint configuration
 
----
-*Part of the Intelligent Media Processing Pipeline Engineering Assignment.*
+If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.

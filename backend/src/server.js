@@ -1,21 +1,21 @@
-const app = require('./app');
-const { port } = require('./config/env');
-const logger = require('./utils/logger');
-const prisma = require('./config/db');
+const express = require('express');
+const cors = require('cors');
+const dotenv = require('dotenv');
+const apiRoutes = require('./routes/apiRoutes');
+require('./workers/imageWorker'); // Initialize worker automatically
 
-// Graceful Shutdown Handling
-const gracefulShutdown = async (signal) => {
-  logger.info(`${signal} received. Shutting down gracefully...`);
-  await prisma.$disconnect();
-  process.exit(0);
-};
+dotenv.config();
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+const app = express();
 
-app.listen(port, () => {
-  logger.info(`=================================`);
-  logger.info(`🚀 Server running on port ${port}`);
-  logger.info(`📚 API Docs: http://localhost:${port}/api-docs`);
-  logger.info(`=================================`);
+app.use(cors());
+app.use(express.json());
+app.use('/uploads', express.static('uploads'));
+
+// Routes
+app.use('/api', apiRoutes);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🚀 Backend Server running on http://localhost:${PORT}`);
 });
